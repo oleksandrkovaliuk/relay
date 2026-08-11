@@ -76,5 +76,8 @@
     "vite": "^8.2.1",
     "vitest": "^4.1.10"
   },
-  "author": "Oleksandr Kovaliuk"
+  "author": {
+    "name": "Oleksandr Kovaliuk",
+    "email": "okovaliukk@proton.me"
+  }
 }
