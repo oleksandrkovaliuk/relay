@@ -89,9 +89,12 @@ export function StudentHistoryPage({
         </NativeSelect>
       ) : null}
 
-      <div className="mt-4 grid gap-5 sm:grid-cols-[2.25rem_minmax(0,1fr)] sm:gap-0">
+      <div className="mt-4 grid gap-5 sm:grid-cols-[2.5rem_minmax(0,1fr)] sm:gap-0">
         <aside className="hidden sm:block">
-          <div className="sticky top-[calc(var(--page-header-height)+0.75rem)] -ml-1">
+          {/* The rail is centred in the viewport, not pinned under the header: it
+              is the one control the page is scrubbed with, so it should sit where
+              the hand already is, whatever the scroll position. */}
+          <div className="sticky top-1/2 -ml-1 -translate-y-1/2">
             <LessonTimeline
               history={history}
               now={now}

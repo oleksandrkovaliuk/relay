@@ -6,6 +6,7 @@ import type { Id } from "@convex/_generated/dataModel";
 import { ClaudeActivityRow } from "@/claude/claude-activity-row";
 import type { ClaudeActivityKind } from "@/claude/claude-activity";
 import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 import { formatElapsedSeconds } from "@/lib/utils";
 
 const ELAPSED_TICK_MILLISECONDS = 1_000;
@@ -56,7 +57,7 @@ export function GeneratingHomework() {
       aria-label="Homework being generated"
     >
       <p className="px-5 py-2.5 text-[11px] font-semibold uppercase tracking-[0.09em] text-muted-foreground xl:px-6">
-        Generating
+        In progress
       </p>
       {activeJobs.map((job) => {
         const elapsedMilliseconds = Math.max(0, now - (job.startedAt ?? job.createdAt));
@@ -66,6 +67,18 @@ export function GeneratingHomework() {
         return (
           <article key={job._id} className="grid gap-2 px-5 py-4 xl:px-6">
             <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+              {/* An activity edit runs on the same runtime as a generation, so it
+                  belongs in the same list — labelled for what it is. */}
+              <span
+                className={cn(
+                  "shrink-0 rounded-full px-2 py-0.5 text-[10.5px] font-semibold uppercase tracking-[0.08em]",
+                  job.kind === "question_rewrite"
+                    ? "bg-muted text-secondary-foreground"
+                    : "bg-primary-soft text-primary",
+                )}
+              >
+                {job.kind === "question_rewrite" ? "Edit" : "New"}
+              </span>
               <p className="min-w-0 flex-1 truncate text-[13.5px] font-medium tracking-[-0.01em]">
                 {job.title}
               </p>

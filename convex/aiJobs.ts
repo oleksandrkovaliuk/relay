@@ -1,8 +1,13 @@
 import { v } from "convex/values";
 
-import { mutation, query } from "./_generated/server";
+import type { Id } from "./_generated/dataModel";
+import { mutation, query, type MutationCtx } from "./_generated/server";
 import { questionContentValidator } from "./content";
-import { aiJobActivityValidator } from "./schema";
+import {
+  aiJobActivityValidator,
+  questionSetValidator,
+  referenceRuleValidator,
+} from "./schema";
 
 const draftQuestionValidator = v.object({
   id: v.string(),
@@ -14,6 +19,7 @@ const draftQuestionValidator = v.object({
   points: v.number(),
   difficulty: v.string(),
   explanation: v.string(),
+  set: v.optional(questionSetValidator),
 });
 
 const homeworkDraftValidator = v.object({
@@ -21,8 +27,123 @@ const homeworkDraftValidator = v.object({
   summary: v.string(),
   estimatedMinutes: v.number(),
   learningObjectives: v.array(v.string()),
+  referenceRules: v.optional(v.array(referenceRuleValidator)),
   questions: v.array(draftQuestionValidator),
 });
+
+/**
+ * A rewrite is recorded as a job before Claude starts, so leaving the page does
+ * not lose it: the request keeps running in the desktop process, and any screen
+ * can pick the work — or its finished suggestion — back up.
+ */
+export const createQuestionRewrite = mutation({
+  args: {
+    requestId: v.string(),
+    homeworkDraftId: v.id("homeworkDrafts"),
+    questionId: v.id("homeworkQuestions"),
+    title: v.string(),
+    inputSnapshot: v.string(),
+  },
+  returns: v.id("aiJobs"),
+  handler: async (ctx, args) => {
+    const existingJob = await ctx.db
+      .query("aiJobs")
+      .withIndex("by_requestId", (q) => q.eq("requestId", args.requestId))
+      .unique();
+    if (existingJob) return existingJob._id;
+
+    // One pending edit per activity: a second request supersedes the first.
+    for (const job of await listRewriteJobsForQuestion(ctx, args.questionId)) {
+      await ctx.db.delete("aiJobs", job._id);
+    }
+
+    return ctx.db.insert("aiJobs", {
+      requestId: args.requestId,
+      kind: "question_rewrite",
+      status: "pending",
+      homeworkDraftId: args.homeworkDraftId,
+      questionId: args.questionId,
+      title: args.title,
+      inputSnapshot: args.inputSnapshot,
+      provider: "claude_code",
+      createdAt: Date.now(),
+    });
+  },
+});
+
+export const completeQuestionRewrite = mutation({
+  args: { aiJobId: v.id("aiJobs"), resultSnapshot: v.string() },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const aiJob = await ctx.db.get("aiJobs", args.aiJobId);
+    if (!aiJob) return null;
+    await ctx.db.patch("aiJobs", args.aiJobId, {
+      status: "completed",
+      completedAt: Date.now(),
+      resultSnapshot: args.resultSnapshot,
+    });
+    return null;
+  },
+});
+
+/** Applied or discarded: either way the job has served its purpose. */
+export const dismissJob = mutation({
+  args: { aiJobId: v.id("aiJobs") },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const aiJob = await ctx.db.get("aiJobs", args.aiJobId);
+    if (aiJob) await ctx.db.delete("aiJobs", args.aiJobId);
+    return null;
+  },
+});
+
+const rewriteJobValidator = v.object({
+  _id: v.id("aiJobs"),
+  requestId: v.string(),
+  questionId: v.id("homeworkQuestions"),
+  status: v.union(
+    v.literal("pending"),
+    v.literal("running"),
+    v.literal("completed"),
+    v.literal("failed"),
+  ),
+  resultSnapshot: v.union(v.string(), v.null()),
+  errorMessage: v.union(v.string(), v.null()),
+  latestActivity: v.optional(aiJobActivityValidator),
+});
+
+/** Every edit in flight or awaiting review for one draft. */
+export const listRewrites = query({
+  args: { homeworkDraftId: v.id("homeworkDrafts") },
+  returns: v.array(rewriteJobValidator),
+  handler: async (ctx, args) => {
+    const jobs = await ctx.db.query("aiJobs").order("desc").take(MAX_ACTIVE_JOBS * 4);
+    return jobs.flatMap((job) => {
+      if (job.kind !== "question_rewrite") return [];
+      if (job.homeworkDraftId !== args.homeworkDraftId) return [];
+      if (!job.questionId || job.status === "cancelled") return [];
+      return [
+        {
+          _id: job._id,
+          requestId: job.requestId,
+          questionId: job.questionId,
+          status: job.status,
+          resultSnapshot: job.resultSnapshot ?? null,
+          errorMessage: job.errorMessage ?? null,
+          ...(job.latestActivity ? { latestActivity: job.latestActivity } : {}),
+        },
+      ];
+    });
+  },
+});
+
+async function listRewriteJobsForQuestion(
+  ctx: MutationCtx,
+  questionId: Id<"homeworkQuestions">,
+) {
+  const jobs = await ctx.db.query("aiJobs").order("desc").take(MAX_ACTIVE_JOBS * 4);
+  return jobs.filter((job) => job.kind === "question_rewrite" && job.questionId === questionId);
+}
 
 export const createHomeworkGeneration = mutation({
   args: {
@@ -105,6 +226,9 @@ export const completeHomeworkGeneration = mutation({
       summary: args.draft.summary,
       estimatedMinutes: args.draft.estimatedMinutes,
       learningObjectives: args.draft.learningObjectives,
+      ...(args.draft.referenceRules?.length
+        ? { referenceRules: args.draft.referenceRules }
+        : {}),
       status: "review_required",
       createdAt,
     });
@@ -121,6 +245,7 @@ export const completeHomeworkGeneration = mutation({
         points: question.points,
         difficulty: question.difficulty,
         explanation: question.explanation,
+        ...(question.set ? { set: question.set } : {}),
       });
     }
 
@@ -162,6 +287,7 @@ export const listActive = query({
   returns: v.array(
     v.object({
       _id: v.id("aiJobs"),
+      kind: v.union(v.literal("homework_generation"), v.literal("question_rewrite")),
       title: v.string(),
       status: v.union(v.literal("pending"), v.literal("running")),
       studentName: v.union(v.string(), v.null()),
@@ -192,6 +318,7 @@ export const listActive = query({
         const student = job.studentId ? await ctx.db.get("students", job.studentId) : null;
         return {
           _id: job._id,
+          kind: job.kind,
           title: job.title,
           status: job.status === "running" ? ("running" as const) : ("pending" as const),
           studentName: student?.name ?? null,

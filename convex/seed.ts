@@ -145,6 +145,7 @@ export const demoHomework = internalMutation({
       status: "published",
       publishedAt: now,
     });
+    await ctx.db.insert("assignmentStudents", { assignmentId, studentId, createdAt: now });
 
     for (const [order, question] of SEED_QUESTIONS.entries()) {
       await ctx.db.insert("homeworkQuestions", { homeworkDraftId, order, ...question });

@@ -16,8 +16,8 @@ function DraftReviewRoute() {
   return (
     <>
       <PageHeader
-        title="Review draft"
-        description="Check every prompt and answer key, then publish when it feels right."
+        title="Homework details"
+        description="Preview the student experience, edit the activities, and manage who it is assigned to."
       />
       <DraftReview
         homeworkDraftId={homeworkDraftId as Id<"homeworkDrafts">}

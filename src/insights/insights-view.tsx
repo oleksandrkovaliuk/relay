@@ -1,6 +1,6 @@
 import { useQuery } from "convex/react";
 import type { FunctionReturnType } from "convex/server";
-import { useId, useState } from "react";
+import { useEffect, useId, useState } from "react";
 
 import { EvilBarChart } from "@/components/charts/recharts-bar-chart";
 import { SectionHeading } from "@/components/section-heading";
@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import type { ChartConfig } from "@/components/charts/recharts-chart";
 
 import { api } from "@convex/_generated/api";
+import type { Id } from "@convex/_generated/dataModel";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
@@ -16,6 +17,20 @@ import {
   humanizeIdentifier,
   initials,
 } from "@/lib/utils";
+import { SubmissionDetail } from "@/submissions/submission-detail";
+import {
+  describeInsightScope,
+  isInsightFilterActive,
+  resolveInsightFilter,
+  type InsightSection,
+  type InsightsSearch,
+} from "./insight-filter";
+import { InsightsFilterBar } from "./insights-filter-bar";
+import {
+  InsightHighlightList,
+  InsightHighlightsEmpty,
+  InsightHighlightsSkeleton,
+} from "./insight-highlights";
 
 const WEAK_ACCURACY_THRESHOLD = 50;
 const SKILL_ATTENTION_THRESHOLD = 70;
@@ -70,23 +85,89 @@ interface CanonicalSkill {
   students: Map<SkillStudentItem["studentId"], CanonicalStudentSkill>;
 }
 
-export function InsightsView({ now }: { now: number }) {
-  const overview = useQuery(api.dashboard.overview);
-  const skills = useQuery(api.dashboard.skillMastery);
-  const questions = useQuery(api.dashboard.questionInsights);
-  const students = useQuery(api.dashboard.studentPressure);
+export function InsightsView({
+  now,
+  search,
+  onSearchChange,
+}: {
+  now: number;
+  search: InsightsSearch;
+  onSearchChange: (next: InsightsSearch) => void;
+}) {
+  const filter = resolveInsightFilter(search, now);
+  const filterArgument = { filter };
+  const overview = useQuery(api.dashboard.overview, filterArgument);
+  const highlights = useQuery(api.dashboard.highlights, { ...filterArgument, now });
+  const skills = useQuery(api.dashboard.skillMastery, filterArgument);
+  const questions = useQuery(api.dashboard.questionInsights, filterArgument);
+  const students = useQuery(api.dashboard.studentPressure, filterArgument);
+  const [openSubmissionId, setOpenSubmissionId] = useState<Id<"submissions"> | null>(null);
+  const isFiltered = isInsightFilterActive(search);
 
-  if (overview === undefined) return <InsightsLoading />;
+  useEffect(function revealRequestedSection() {
+    if (!search.section) return;
+    document
+      .getElementById(sectionElementId(search.section))
+      ?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, [search.section]);
 
   return (
-    <div className="mx-auto grid w-full max-w-[1480px] gap-9 px-6 pb-16 pt-6 lg:px-10 xl:gap-10 xl:pt-8">
-      <MetricsOverview overview={overview} />
-      <SkillMasteryCard skills={skills} />
-      <StudentPerformanceCard now={now} students={students} />
-      <SubmissionVolumeCard dailySubmissions={overview.daily} />
-      <QuestionInsightsCard questions={questions} />
+    <div className="mx-auto grid w-full max-w-[1480px] gap-8 px-6 pb-16 pt-5 lg:px-10 xl:gap-9 xl:pt-6">
+      <InsightsFilterBar search={search} now={now} onChange={onSearchChange} />
+
+      <section
+        className="grid gap-3"
+        id={sectionElementId("highlights")}
+        aria-labelledby="insight-findings-heading"
+      >
+        <SectionHeading
+          id="insight-findings-heading"
+          title="What stands out"
+          description={describeInsightScope(search, currentStudentName(students, search))}
+        />
+        {highlights === undefined ? (
+          <InsightHighlightsSkeleton />
+        ) : highlights.length === 0 ? (
+          <InsightHighlightsEmpty isFiltered={isFiltered} />
+        ) : (
+          <InsightHighlightList
+            className="min-[900px]:grid-cols-2"
+            highlights={highlights}
+            onOpenSubmission={setOpenSubmissionId}
+          />
+        )}
+      </section>
+
+      {overview === undefined ? (
+        <InsightsLoading />
+      ) : (
+        <>
+          <MetricsOverview overview={overview} />
+          <SkillMasteryCard skills={skills} />
+          <StudentPerformanceCard now={now} students={students} />
+          <SubmissionVolumeCard dailySubmissions={overview.daily} />
+          <QuestionInsightsCard questions={questions} />
+        </>
+      )}
+
+      {openSubmissionId ? (
+        <SubmissionDetail
+          submissionId={openSubmissionId}
+          onClose={() => setOpenSubmissionId(null)}
+        />
+      ) : null}
     </div>
   );
+}
+
+export function sectionElementId(section: InsightSection) {
+  return `insight-section-${section}`;
+}
+
+/** The filtered student's name, for the scope line under the heading. */
+function currentStudentName(students: StudentPressureData | undefined, search: InsightsSearch) {
+  if (!search.student) return null;
+  return students?.find((student) => student.studentId === search.student)?.name ?? null;
 }
 
 function MetricsOverview({ overview }: { overview: OverviewData }) {
@@ -293,7 +374,7 @@ function weightedAverage(weightedTotal: number, attempts: number) {
 
 function SkillMasteryCard({ skills }: { skills: SkillMasteryData | undefined }) {
   return (
-    <section>
+    <section id={sectionElementId("skills")}>
       <SectionHeading
         title="Skill mastery"
         description="Named student signals grouped into the skills that need support and those building strength."
@@ -520,7 +601,7 @@ function StudentPerformanceCard({
   students: StudentPressureData | undefined;
 }) {
   return (
-    <section>
+    <section id={sectionElementId("students")}>
       <SectionHeading
         title="Student performance"
         description="A focused follow-up list alongside students whose completed work is standing out."
@@ -741,7 +822,7 @@ function QuestionInsightsCard({
   questions: QuestionInsightData | undefined;
 }) {
   return (
-    <section>
+    <section id={sectionElementId("questions")}>
       <SectionHeading
         title="Questions that cost the most"
         description="Low accuracy, long response times, and repeated edits point to uncertainty."

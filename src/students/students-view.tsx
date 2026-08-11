@@ -83,7 +83,7 @@ export function StudentsView({
               id={HEADER_ADD_STUDENT_TRIGGER_ID}
               render={<Button size="lg" />}
             >
-              <HugeiconsIcon icon={Add01Icon} size={16} strokeWidth={2} aria-hidden />
+              <HugeiconsIcon icon={Add01Icon} size={15} strokeWidth={2} aria-hidden />
               Add student
             </DialogTrigger>
           </div>
@@ -108,14 +108,16 @@ export function StudentsView({
                     id={EMPTY_ADD_STUDENT_TRIGGER_ID}
                     render={<Button size="lg" />}
                   >
-                    <HugeiconsIcon icon={Add01Icon} size={16} strokeWidth={2} aria-hidden />
+                    <HugeiconsIcon icon={Add01Icon} size={15} strokeWidth={2} aria-hidden />
                     Add your first student
                   </DialogTrigger>
                 </EmptyContent>
               </Empty>
             </div>
           ) : (
-            <div className="panel divide-y divide-border/70 overflow-hidden">
+            /* One panel per student: a card that ends where the student does,
+               instead of rows melting into one long sheet. */
+            <div className="grid gap-3">
               {students.map((student) =>
                 editingId === student._id ? (
                   <StudentEditForm
@@ -172,10 +174,10 @@ function StudentCard({
   onCreateHomework: () => void;
 }) {
   return (
-    <article className="px-4 py-5 sm:px-5 xl:px-6 xl:py-6">
+    <article className="panel px-4 py-5 sm:px-5 xl:px-6 xl:py-6">
       <header className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
         <div className="flex min-w-0 items-center gap-3">
-          <span className="grid size-8 shrink-0 place-items-center rounded-full bg-muted text-[10.5px] font-semibold text-secondary-foreground ring-1 ring-black/6">
+          <span className="grid size-8 shrink-0 place-items-center rounded-full bg-muted text-[10.5px] font-semibold text-secondary-foreground ring-1 ring-foreground/8">
             {initials(student.name)}
           </span>
           <div className="min-w-0">
@@ -200,12 +202,12 @@ function StudentCard({
                 <a href={student.miroBoardUrl} target="_blank" rel="noreferrer" />
               }
             >
-              <HugeiconsIcon icon={ExternalLinkIcon} size={14} strokeWidth={2} aria-hidden />
+              <HugeiconsIcon icon={ExternalLinkIcon} size={15} strokeWidth={2} aria-hidden />
               Miro
             </Button>
           ) : null}
           <Button variant="ghost" size="lg" onClick={onEdit}>
-            <HugeiconsIcon icon={Edit01Icon} size={14} strokeWidth={2} aria-hidden />
+            <HugeiconsIcon icon={Edit01Icon} size={15} strokeWidth={2} aria-hidden />
             Edit
           </Button>
           <Button
@@ -235,7 +237,8 @@ function StudentCard({
         </p>
       </div>
 
-      <dl className="mt-5 grid max-w-4xl grid-cols-2 gap-x-8 gap-y-4 border-t border-border pt-4 sm:grid-cols-4">
+      {/* Full width, so the rule reads as the card's own divider. */}
+      <dl className="mt-5 grid grid-cols-2 gap-x-8 gap-y-4 border-t border-border pt-4 sm:grid-cols-4">
         <StudentMetric label="Assigned" value={student.assignmentCount} />
         <StudentMetric label="Submitted" value={student.submittedCount} />
         <StudentMetric
@@ -284,7 +287,7 @@ function NewStudentDialogContent({ onSaved }: { onSaved: () => void }) {
             />
           }
         >
-          <HugeiconsIcon icon={Cancel01Icon} size={16} strokeWidth={2} aria-hidden />
+          <HugeiconsIcon icon={Cancel01Icon} size={15} strokeWidth={2} aria-hidden />
           <span className="sr-only">Close</span>
         </DialogClose>
       </DialogHeader>
@@ -308,7 +311,7 @@ function StudentEditForm({
   onSaved: () => void;
 }) {
   return (
-    <div className="max-w-4xl p-5 sm:p-6">
+    <div className="panel p-5 sm:p-6">
       <div className="flex items-center justify-between gap-4">
         <p className="text-[16px] font-semibold tracking-[-0.01em] xl:text-[17px]">{title}</p>
         <Button variant="ghost" size="icon-lg" aria-label="Cancel editing" onClick={onCancel}>
@@ -316,7 +319,7 @@ function StudentEditForm({
         </Button>
       </div>
       <StudentEditorForm
-        className="mt-5"
+        className="mt-5 max-w-3xl"
         studentId={studentId}
         initial={initial}
         onCancel={onCancel}

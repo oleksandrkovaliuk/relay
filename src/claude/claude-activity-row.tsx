@@ -47,11 +47,13 @@ export function ClaudeActivityRow({
   const Icon = ACTIVITY_ICONS[kind];
 
   return (
-    <div className={cn("flex min-w-0 items-baseline gap-2.5 text-[12.5px] leading-5", className)}>
+    <div className={cn("flex min-w-0 items-start gap-2.5 text-[12.5px] leading-5", className)}>
+      {/* A line-height-tall box centres the glyph on the first text line
+          without magic offsets. */}
       <span
         aria-hidden
         className={cn(
-          "relative top-[3px] shrink-0",
+          "flex h-5 w-3 shrink-0 items-center justify-center",
           kind === "failed"
             ? "text-destructive"
             : kind === "completion"

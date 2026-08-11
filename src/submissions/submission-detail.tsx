@@ -6,13 +6,13 @@ import { api } from "@convex/_generated/api";
 import type { Id } from "@convex/_generated/dataModel";
 import { Button } from "@/components/ui/button";
 import {
-  Dialog,
-  DialogClose,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
+  Sheet,
+  SheetClose,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Spinner } from "@/components/ui/spinner";
 import { cn, formatDuration, humanizeIdentifier } from "@/lib/utils";
@@ -45,7 +45,7 @@ export function SubmissionDetail({
   const [isOpen, setIsOpen] = useState(true);
 
   return (
-    <Dialog
+    <Sheet
       open={isOpen}
       onOpenChange={(nextOpen) => {
         if (!nextOpen) setIsOpen(false);
@@ -54,43 +54,40 @@ export function SubmissionDetail({
         if (!nextOpen) onClose();
       }}
     >
-      <DialogContent
+      <SheetContent
+        side="right"
         showCloseButton={false}
-        className="top-0! right-0! bottom-0! left-auto! flex h-dvh w-full max-w-[min(660px,calc(100vw-1rem))] translate-none! [transform:translateX(0)]! flex-col gap-0 overflow-hidden rounded-none! border-l border-border/80 bg-background p-0 opacity-100 shadow-2xl transition-[transform,opacity]! duration-[280ms]! ease-[var(--ease-drawer)]! data-open:animate-none! data-closed:animate-none! data-starting-style:[transform:translateX(100%)]! data-starting-style:opacity-[.98]! data-ending-style:[transform:translateX(100%)]! data-ending-style:opacity-[.98]! motion-reduce:transition-opacity! motion-reduce:duration-150! motion-reduce:data-starting-style:[transform:none]! motion-reduce:data-starting-style:opacity-0! motion-reduce:data-ending-style:[transform:none]! motion-reduce:data-ending-style:opacity-0! sm:max-w-[660px]"
+        // The Sheet's own right-side defaults are three-quarter width; a review
+        // pane wants a fixed reading column instead.
+        className="gap-0 p-0 data-[side=right]:w-full data-[side=right]:sm:max-w-[41rem]"
       >
-        <DialogHeader className="shrink-0 flex-row items-start gap-4 border-b border-border/80 px-5 py-4 text-left sm:px-7 sm:py-5">
+        <SheetHeader className="shrink-0 flex-row items-start gap-4 border-b border-border/70 p-5 text-left sm:p-6">
           <div className="min-w-0 flex-1">
-            <DialogTitle className="truncate text-[17px] font-semibold tracking-[-0.02em] sm:text-lg">
+            <SheetTitle className="truncate text-[17px] font-semibold tracking-[-0.02em]">
               {detail?.studentName ?? "Submission"}
-            </DialogTitle>
-            <DialogDescription className="mt-1 truncate text-[13px] text-foreground/62 sm:text-sm">
+            </SheetTitle>
+            <SheetDescription className="mt-1 truncate text-[13px]">
               {detail?.assignmentTitle ?? "Loading submission details…"}
-            </DialogDescription>
+            </SheetDescription>
           </div>
-          <DialogClose
+          <SheetClose
             render={
-              <button
-                type="button"
-                aria-label="Close submission review"
-                onClick={() => setIsOpen(false)}
-                className="grid size-11 shrink-0 place-items-center rounded-xl text-foreground/60 outline-none transition-[transform,background-color,color] duration-[120ms] ease-[var(--ease-out)] hover:bg-muted hover:text-foreground active:scale-[.96] focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background motion-reduce:active:scale-100"
-              />
+              <Button variant="ghost" size="icon-lg" aria-label="Close submission review" />
             }
           >
-            <X size={18} strokeWidth={2} aria-hidden />
-            <span className="sr-only">Close submission review</span>
-          </DialogClose>
-        </DialogHeader>
+            <X size={17} strokeWidth={2} aria-hidden />
+          </SheetClose>
+        </SheetHeader>
 
         {detail === undefined ? (
           <p
-            className="flex items-center gap-2 px-6 py-8 text-sm text-secondary-foreground sm:px-7"
+            className="flex items-center gap-2 px-5 py-8 text-sm text-secondary-foreground sm:px-6"
             aria-live="polite"
           >
             <Spinner /> Loading submission…
           </p>
         ) : detail === null ? (
-          <p className="px-6 py-8 text-sm text-secondary-foreground sm:px-7">
+          <p className="px-5 py-8 text-sm text-secondary-foreground sm:px-6">
             This submission is gone.
           </p>
         ) : (
@@ -101,12 +98,14 @@ export function SubmissionDetail({
             <SubmissionContents detail={detail} />
           </ScrollArea>
         )}
-      </DialogContent>
-    </Dialog>
+      </SheetContent>
+    </Sheet>
   );
 }
 
-type Submission = NonNullable<ReturnType<typeof useQuery<typeof api.submissions.detail>>>;
+type Submission = NonNullable<
+  ReturnType<typeof useQuery<typeof api.submissions.detail>>
+>;
 type AnswerDetail = Submission["answers"][number];
 
 function SubmissionContents({ detail }: { detail: Submission }) {
@@ -124,10 +123,12 @@ function SubmissionContents({ detail }: { detail: Submission }) {
     <div className="grid gap-8 px-5 py-6 sm:px-7 sm:py-8">
       <section aria-labelledby="submission-overview-heading">
         <SectionHeading id="submission-overview-heading" title="Overview" />
-        <div className="mt-3 overflow-hidden rounded-2xl bg-muted/45 shadow-[0_0_0_1px_oklch(0_0_0/.055)]">
+        <div className="mt-3 overflow-hidden rounded-2xl border border-border bg-muted/45">
           <div className="flex flex-wrap items-end justify-between gap-4 px-5 py-5 sm:px-6">
             <div>
-              <p className="text-[12px] font-medium text-foreground/55">Current score</p>
+              <p className="text-[12px] font-medium text-foreground/55">
+                Current score
+              </p>
               <p className="mt-1 text-[36px] font-semibold leading-none tracking-[-0.045em] text-foreground numeric sm:text-[40px]">
                 {scorePercentage}%
               </p>
@@ -137,12 +138,26 @@ function SubmissionContents({ detail }: { detail: Submission }) {
             </p>
           </div>
           <dl className="divide-y divide-border/75 border-t border-border/75">
-            <SummaryRow label="Active time" value={formatDuration(detail.activeMs)} icon={<Clock3 size={15} />} />
-            <SummaryRow label="Answer lookups" value={String(detail.lookupCount)} icon={<Eye size={15} />} />
+            <SummaryRow
+              label="Active time"
+              value={formatDuration(detail.activeMs)}
+              icon={<Clock3 size={15} />}
+            />
+            <SummaryRow
+              label="Answer lookups"
+              value={String(detail.lookupCount)}
+              icon={<Eye size={15} />}
+            />
             <SummaryRow
               label="Review status"
               value={reviewStatus}
-              tone={pendingReviewCount > 0 ? "accent" : detail.status === "submitted" ? "positive" : "neutral"}
+              tone={
+                pendingReviewCount > 0
+                  ? "accent"
+                  : detail.status === "submitted"
+                    ? "positive"
+                    : "neutral"
+              }
             />
           </dl>
         </div>
@@ -150,8 +165,11 @@ function SubmissionContents({ detail }: { detail: Submission }) {
 
       {detail.feedback ? (
         <section aria-labelledby="student-feedback-heading">
-          <SectionHeading id="student-feedback-heading" title="Student feedback" />
-          <div className="mt-3 overflow-hidden rounded-2xl bg-muted/45 shadow-[0_0_0_1px_oklch(0_0_0/.055)]">
+          <SectionHeading
+            id="student-feedback-heading"
+            title="Student feedback"
+          />
+          <div className="mt-3 overflow-hidden rounded-2xl border border-border bg-muted/45">
             <div className="flex flex-wrap items-center justify-between gap-3 px-5 py-4 sm:px-6">
               <p className="text-[13px] font-medium text-foreground sm:text-sm">
                 How this homework felt
@@ -170,7 +188,7 @@ function SubmissionContents({ detail }: { detail: Submission }) {
       {detail.aiSummary ? (
         <section aria-labelledby="review-summary-heading">
           <SectionHeading id="review-summary-heading" title="Review summary" />
-          <div className="mt-3 overflow-hidden rounded-2xl bg-muted/45 shadow-[0_0_0_1px_oklch(0_0_0/.055)]">
+          <div className="mt-3 overflow-hidden rounded-2xl border border-border bg-muted/45">
             <div className="px-5 py-5 sm:px-6">
               <p
                 className={cn(
@@ -192,7 +210,9 @@ function SubmissionContents({ detail }: { detail: Submission }) {
             </div>
             {detail.aiSummary.focusAreas.length > 0 ? (
               <div className="border-t border-border/75 px-5 py-4 text-[13px] leading-5 text-foreground/65 sm:px-6 sm:text-sm">
-                <span className="font-semibold text-foreground">Focus next: </span>
+                <span className="font-semibold text-foreground">
+                  Focus next:{" "}
+                </span>
                 {detail.aiSummary.focusAreas.map(humanizeIdentifier).join(", ")}
               </div>
             ) : null}
@@ -221,13 +241,28 @@ function SubmissionContents({ detail }: { detail: Submission }) {
   );
 }
 
-function SectionHeading({ id, title, trailing }: { id: string; title: string; trailing?: string }) {
+function SectionHeading({
+  id,
+  title,
+  trailing,
+}: {
+  id: string;
+  title: string;
+  trailing?: string;
+}) {
   return (
     <div className="flex items-baseline justify-between gap-4 px-0.5">
-      <h2 id={id} className="text-[14px] font-semibold tracking-[-0.01em] text-foreground sm:text-[15px]">
+      <h2
+        id={id}
+        className="text-[14px] font-semibold tracking-[-0.01em] text-foreground sm:text-[15px]"
+      >
         {title}
       </h2>
-      {trailing ? <span className="text-[12px] text-foreground/50 numeric sm:text-[13px]">{trailing}</span> : null}
+      {trailing ? (
+        <span className="text-[12px] text-foreground/50 numeric sm:text-[13px]">
+          {trailing}
+        </span>
+      ) : null}
     </div>
   );
 }
@@ -246,7 +281,11 @@ function SummaryRow({
   return (
     <div className="flex min-h-12 items-center justify-between gap-4 px-5 py-3 text-[13px] sm:px-6 sm:text-sm">
       <dt className="flex items-center gap-2 text-foreground/60">
-        {icon ? <span aria-hidden className="text-foreground/45">{icon}</span> : null}
+        {icon ? (
+          <span aria-hidden className="text-foreground/45">
+            {icon}
+          </span>
+        ) : null}
         {label}
       </dt>
       <dd
@@ -262,7 +301,10 @@ function SummaryRow({
   );
 }
 
-function getReviewStatus(status: Submission["status"], pendingReviewCount: number) {
+function getReviewStatus(
+  status: Submission["status"],
+  pendingReviewCount: number,
+) {
   if (pendingReviewCount > 0) {
     return `${pendingReviewCount} ${pendingReviewCount === 1 ? "answer" : "answers"} to grade`;
   }
@@ -282,7 +324,7 @@ function RatingDisplay({ rating }: { rating: number }) {
           size={15}
           aria-hidden
           className={cn(
-            "text-foreground/18",
+            "text-ink-faint",
             index < rating && "fill-amber-400 text-amber-500",
           )}
         />
@@ -305,17 +347,20 @@ function AnswerReviewCard({
 }) {
   const correctness = !answer.answered
     ? "not_answered"
-    : answer.correctness ?? (isSubmissionComplete ? "pending_review" : "in_progress");
+    : (answer.correctness ??
+      (isSubmissionComplete ? "pending_review" : "in_progress"));
   const isCorrect = correctness === "correct";
   const isMiss = correctness === "incorrect" || correctness === "partial";
   const isPendingReview =
-    answer.answered && isSubmissionComplete && answer.correctness === "pending_review";
+    answer.answered &&
+    isSubmissionComplete &&
+    answer.correctness === "pending_review";
   const isSlow = answer.activeMs > 90_000;
 
   return (
     <article
       className={cn(
-        "overflow-hidden rounded-2xl bg-muted/45 shadow-[0_1px_2px_oklch(0_0_0/.03),0_4px_14px_oklch(0_0_0/.025)] ring-1 ring-foreground/6",
+        "overflow-hidden rounded-2xl border border-border bg-muted/45",
         isPendingReview && "bg-primary-soft/45 ring-primary/20",
       )}
     >
@@ -332,7 +377,10 @@ function AnswerReviewCard({
                 isCorrect && "text-good",
                 isMiss && "text-destructive",
                 isPendingReview && "text-primary",
-                !isCorrect && !isMiss && !isPendingReview && "text-foreground/55",
+                !isCorrect &&
+                  !isMiss &&
+                  !isPendingReview &&
+                  "text-foreground/55",
               )}
             >
               {CORRECTNESS_LABELS[correctness]}
@@ -349,7 +397,9 @@ function AnswerReviewCard({
       <div className="divide-y divide-border/75 border-t border-border/75">
         <AnswerRow label="Student answer">
           <p className="whitespace-pre-line text-pretty text-sm leading-6 text-foreground sm:text-[15px]">
-            {answer.answered ? answer.responseText || "(blank)" : "Not answered"}
+            {answer.answered
+              ? answer.responseText || "(blank)"
+              : "Not answered"}
           </p>
         </AnswerRow>
 
@@ -363,8 +413,14 @@ function AnswerReviewCard({
 
         <div className="px-5 py-4 sm:px-6">
           <div className="flex flex-wrap items-center gap-x-3 gap-y-2 text-[12px] text-foreground/58 sm:text-[13px]">
-            <span className={cn("flex items-center gap-1.5 numeric", isSlow && "font-medium text-destructive")}>
-              <Clock3 size={13} aria-hidden /> {formatDuration(answer.activeMs)} active
+            <span
+              className={cn(
+                "flex items-center gap-1.5 numeric",
+                isSlow && "font-medium text-destructive",
+              )}
+            >
+              <Clock3 size={13} aria-hidden /> {formatDuration(answer.activeMs)}{" "}
+              active
             </span>
             {answer.lookupCount > 0 ? (
               <span className="flex items-center gap-1.5 numeric">
@@ -393,10 +449,18 @@ function AnswerReviewCard({
   );
 }
 
-function AnswerRow({ label, children }: { label: string; children: ReactNode }) {
+function AnswerRow({
+  label,
+  children,
+}: {
+  label: string;
+  children: ReactNode;
+}) {
   return (
     <div className="grid gap-2 px-5 py-4 sm:grid-cols-[116px_minmax(0,1fr)] sm:gap-5 sm:px-6">
-      <p className="text-[12px] font-medium text-foreground/55 sm:text-[13px]">{label}</p>
+      <p className="text-[12px] font-medium text-foreground/55 sm:text-[13px]">
+        {label}
+      </p>
       <div className="min-w-0">{children}</div>
     </div>
   );
@@ -422,7 +486,13 @@ function AnswerStatusIcon({
             : "text-foreground/55",
       )}
     >
-      {isCorrect ? <Check size={17} strokeWidth={2.5} /> : isMiss ? <X size={17} strokeWidth={2.5} /> : "?"}
+      {isCorrect ? (
+        <Check size={17} strokeWidth={2.5} />
+      ) : isMiss ? (
+        <X size={17} strokeWidth={2.5} />
+      ) : (
+        "?"
+      )}
     </span>
   );
 }
@@ -435,7 +505,8 @@ function GradeAnswerForm({
   submissionId: Id<"submissions">;
 }) {
   const gradePendingAnswer = useMutation(api.submissions.gradePendingAnswer);
-  const [correctness, setCorrectness] = useState<TeacherGradeCorrectness>("correct");
+  const [correctness, setCorrectness] =
+    useState<TeacherGradeCorrectness>("correct");
   const [pointsText, setPointsText] = useState(String(answer.points));
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -448,7 +519,9 @@ function GradeAnswerForm({
   const hasConsistentGrade =
     (correctness === "correct" && pointsAwarded === answer.points) ||
     (correctness === "incorrect" && pointsAwarded === 0) ||
-    (correctness === "partial" && pointsAwarded > 0 && pointsAwarded < answer.points);
+    (correctness === "partial" &&
+      pointsAwarded > 0 &&
+      pointsAwarded < answer.points);
   const canSave = hasValidPoints && hasConsistentGrade && !isSaving;
   const pointsInputId = `grade-points-${answer.questionId}`;
   const pointsHintId = `${pointsInputId}-hint`;
@@ -480,18 +553,25 @@ function GradeAnswerForm({
         pointsAwarded,
       });
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Could not save this grade.");
+      setError(
+        caught instanceof Error ? caught.message : "Could not save this grade.",
+      );
     } finally {
       setIsSaving(false);
     }
   }
 
   return (
-    <form className="border-t border-border/75 px-5 py-5 sm:px-6" onSubmit={(event) => void saveGrade(event)}>
+    <form
+      className="border-t border-border/75 px-5 py-5 sm:px-6"
+      onSubmit={(event) => void saveGrade(event)}
+    >
       <fieldset>
-        <legend className="text-[13px] font-semibold text-foreground sm:text-sm">Teacher grade</legend>
+        <legend className="text-[13px] font-semibold text-foreground sm:text-sm">
+          Teacher grade
+        </legend>
         <div
-          className="mt-3 grid grid-cols-3 gap-1 rounded-xl bg-background/80 p-1 shadow-[0_0_0_1px_oklch(0_0_0/.06)]"
+          className="mt-3 grid grid-cols-3 gap-1 rounded-xl border border-border bg-background/80 p-1"
           aria-label="Answer result"
         >
           {GRADE_OPTIONS.map((option) => (
@@ -501,7 +581,9 @@ function GradeAnswerForm({
               variant={correctness === option.value ? "default" : "ghost"}
               className="min-w-0 px-2"
               aria-pressed={correctness === option.value}
-              disabled={isSaving || (option.value === "partial" && answer.points < 2)}
+              disabled={
+                isSaving || (option.value === "partial" && answer.points < 2)
+              }
               onClick={() => selectCorrectness(option.value)}
             >
               {option.label}
@@ -512,7 +594,9 @@ function GradeAnswerForm({
 
       <div className="mt-4 flex flex-wrap items-end gap-3">
         <label className="grid gap-1.5" htmlFor={pointsInputId}>
-          <span className="text-[13px] font-medium text-foreground">Points</span>
+          <span className="text-[13px] font-medium text-foreground">
+            Points
+          </span>
           <input
             id={pointsInputId}
             type="number"
@@ -527,7 +611,10 @@ function GradeAnswerForm({
             className="h-8 w-20 rounded-2xl border border-transparent bg-input/50 px-2.5 text-sm text-foreground outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/30 disabled:bg-muted disabled:text-secondary-foreground"
           />
         </label>
-        <p id={pointsHintId} className="min-w-[12rem] flex-1 pb-1 text-[13px] leading-5 text-secondary-foreground">
+        <p
+          id={pointsHintId}
+          className="min-w-[12rem] flex-1 pb-1 text-[13px] leading-5 text-secondary-foreground"
+        >
           out of {answer.points}. Adjust points only for a partly right answer.
         </p>
         <Button type="submit" disabled={!canSave}>

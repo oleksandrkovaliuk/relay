@@ -5,7 +5,10 @@ import { createRoot } from "react-dom/client";
 
 import "@/styles.css";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { applyTheme, readThemePreference } from "@/settings/theme";
 import { router } from "./router";
+
+applyTheme(readThemePreference());
 
 const rootElement = document.getElementById("app");
 const convexUrl = import.meta.env.VITE_CONVEX_URL?.trim();

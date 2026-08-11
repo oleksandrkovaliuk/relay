@@ -21,6 +21,14 @@ const ACTIVITY_TYPE_DESCRIPTIONS: Record<ActivityType, ActivityTypeDescription> 
     label: "Matching pairs",
     description: "Click a prompt, then its match. Good for form and meaning.",
   },
+  select_cloze: {
+    label: "Passage with choices",
+    description: "A whole text with a dropdown at every gap. The hardest auto-graded type.",
+  },
+  error_fix: {
+    label: "Fix the mistake",
+    description: "One wrong phrase flagged in a sentence. Built from the student's own errors.",
+  },
   short_answer: {
     label: "Short answer",
     description: "A sentence or two in the student's own words. You grade it.",
@@ -32,8 +40,9 @@ const ACTIVITY_TYPE_DESCRIPTIONS: Record<ActivityType, ActivityTypeDescription> 
 };
 
 /**
- * Lets the teacher pin the homework to particular widgets. Selecting nothing
- * is the useful default: the generator then picks the mix from the brief.
+ * Lets the teacher guarantee that particular widgets appear. The generator still
+ * mixes in other types around them, so a selection sharpens the set rather than
+ * flattening it. Selecting nothing leaves the whole mix to the brief.
  */
 export function ActivityTypePicker({
   selected,
@@ -44,7 +53,11 @@ export function ActivityTypePicker({
 }) {
   function toggle(activityType: ActivityType, isSelected: boolean) {
     if (isSelected) {
-      onChange(ACTIVITY_TYPES.filter((candidate) => candidate === activityType || selected.includes(candidate)));
+      onChange(
+        ACTIVITY_TYPES.filter(
+          (candidate) => candidate === activityType || selected.includes(candidate),
+        ),
+      );
       return;
     }
     onChange(selected.filter((candidate) => candidate !== activityType));
@@ -52,7 +65,7 @@ export function ActivityTypePicker({
 
   return (
     <div>
-      <div role="group" aria-label="Activity types" className="grid gap-2 sm:grid-cols-2">
+      <div role="group" aria-label="Activity types" className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
         {ACTIVITY_TYPES.map((activityType) => {
           const { label, description } = ACTIVITY_TYPE_DESCRIPTIONS[activityType];
           const isSelected = selected.includes(activityType);
@@ -83,8 +96,8 @@ export function ActivityTypePicker({
       </div>
       <p className="mt-2 text-[12px] leading-5 text-muted-foreground">
         {selected.length === 0
-          ? "Nothing selected — Claude will choose the mix that fits the brief."
-          : `Only ${selected.length === 1 ? "this type" : "these types"} will be generated.`}
+          ? "Nothing selected — Claude picks the mix that fits the brief."
+          : `${selected.length === 1 ? "This type is" : "These types are"} guaranteed to appear, mixed with others.`}
       </p>
     </div>
   );

@@ -153,7 +153,7 @@ describe("submission feedback", () => {
     });
     const feed = await backend.query(api.feed.inbox);
     const assignments = await backend.query(api.assignments.listPublished);
-    const overview = await backend.query(api.dashboard.overview);
+    const overview = await backend.query(api.dashboard.overview, {});
 
     const expectedFeedback = {
       rating: 4,

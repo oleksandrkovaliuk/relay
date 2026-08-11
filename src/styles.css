@@ -45,6 +45,12 @@
   --color-sidebar-ring: var(--sidebar-ring);
   --color-panel: var(--panel);
   --color-panel-muted: var(--panel-muted);
+  --color-workspace-surface: var(--workspace-surface);
+  --color-workspace-sidebar: var(--workspace-sidebar);
+  --color-workspace-sidebar-icon: var(--workspace-sidebar-icon);
+  /* The faintest readable ink. A real colour, so icons never need an alpha that
+     would let whatever sits behind them bleed through. */
+  --color-ink-faint: var(--ink-faint);
 
   /* Compatibility names keep the shared player and teacher app on one system. */
   --color-surface: var(--card);
@@ -116,6 +122,12 @@
   --duration-state: 300ms;
   /* PageHeader is sticky, so sticky sidebars must start below it. */
   --page-header-height: 8rem;
+  /* The workspace chrome is deliberately its own surface: a dark rail beside a
+     near-white canvas in light mode, both darkened together in dark mode. */
+  --workspace-surface: oklch(0.973 0.0015 286);
+  --workspace-sidebar: oklch(0.203 0.001 286);
+  --workspace-sidebar-icon: oklch(0.58 0.002 286);
+  --ink-faint: oklch(0.74 0.004 286);
 }
 
 .dark {
@@ -156,6 +168,10 @@
   --sidebar-ring: oklch(0.556 0 0);
   --panel: oklch(0.205 0 0);
   --panel-muted: oklch(0.24 0.003 286);
+  --workspace-surface: oklch(0.168 0 0);
+  --workspace-sidebar: oklch(0.125 0 0);
+  --workspace-sidebar-icon: oklch(0.55 0.002 286);
+  --ink-faint: oklch(0.46 0.004 286);
 }
 
 @layer base {
@@ -210,17 +226,20 @@
     animation: status-enter var(--duration-fast) var(--ease-standard) both;
   }
 
-  /* The single raised surface every workspace list, card, and panel sits on. */
+  /*
+   * The single raised surface every workspace list, card, and panel sits on.
+   * The edge is a real border, not a box-shadow ring: a ring is painted outside
+   * the box and gets shaved off by any scrolling or clipping ancestor.
+   */
   .panel {
     border-radius: 16px;
+    border: 1px solid color-mix(in oklab, var(--foreground) 9%, transparent);
     background: var(--panel);
-    box-shadow:
-      0 0 0 1px color-mix(in oklch, var(--foreground) 8%, transparent),
-      0 1px 2px color-mix(in oklch, var(--foreground) 3%, transparent);
+    box-shadow: 0 1px 2px color-mix(in oklab, var(--foreground) 3%, transparent);
   }
 
   .panel-row + .panel-row {
-    border-top: 1px solid color-mix(in oklch, var(--foreground) 9%, transparent);
+    border-top: 1px solid color-mix(in oklab, var(--foreground) 9%, transparent);
   }
 
   /* Sweeps a highlight across the step Claude is working on right now. */
@@ -271,12 +290,19 @@
     transform: scale(0.985);
   }
 
-  .match-path {
-    transition: stroke-dashoffset 220ms var(--ease-out);
+  .match-connector {
+    opacity: 1;
+    transition: opacity 200ms var(--ease-out);
+  }
+
+  .match-connector[data-revealing="true"] {
+    opacity: 0;
   }
 
   .match-path-halo {
-    opacity: 0.16;
+    /* Just enough to lift a line off a card edge, never enough for two crossing
+       halos to merge into one shape. */
+    opacity: 0.1;
   }
 }
 
@@ -318,8 +344,7 @@
     color: var(--color-secondary-foreground);
   }
 
-  .match-path {
-    stroke-dashoffset: 0 !important;
+  .match-connector {
     transition: none !important;
   }
 

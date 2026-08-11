@@ -1,6 +1,6 @@
 # Deployment plan
 
-ERM is two products that share one Convex backend:
+Relay is two products that share one Convex backend:
 
 - **Teacher workspace:** an Electron desktop app that talks to the teacher's local Claude Code installation.
 - **Student player:** a static Vite app served from the Convex deployment's site domain.
@@ -11,7 +11,7 @@ The cleanest first release keeps that split. It preserves local Claude credentia
 
 ```text
 Teacher Mac
-  ERM.app
+  Relay.app
     ├─ local Claude Code CLI + existing Claude login
     └─ Convex React client ───────────────┐
                                           │
@@ -20,7 +20,7 @@ Student browser                           ▼
     static Vite player                 data + functions + static hosting
 ```
 
-The Claude login is only an AI-provider credential. It must never become the teacher's ERM identity. Before a public release, add real teacher authentication and ownership checks to every teacher query and mutation; keep only share-token/resume-token student functions public.
+The Claude login is only an AI-provider credential. It must never become the teacher's Relay identity. Before a public release, add real teacher authentication and ownership checks to every teacher query and mutation; keep only share-token/resume-token student functions public.
 
 ## Phase 1 — private macOS pilot
 
@@ -52,7 +52,12 @@ These are launch blockers, not polish:
 
 ## Phase 3 — wider distribution
 
-- Attach a custom player domain if needed; Convex custom domains require a paid plan.
+- Attach a custom player domain. Students see this URL, so it is branding: in the
+  Convex dashboard add the domain under the deployment's HTTP/site domains, point
+  a CNAME at the value Convex shows, then rebuild the desktop app with
+  `VITE_PLAYER_ORIGIN=https://<the new domain>` so copied links use it. Existing
+  links keep working — the share token is unchanged, only the origin moves.
+  Convex custom domains require a paid plan.
 - Add Windows packaging/signing only after the macOS pilot proves the workflow.
 - Add automatic desktop updates after signing is stable. Electron requires signed builds for a trustworthy update path.
 - Keep the student player independently deployable so question UX fixes do not require every teacher to update the desktop app.

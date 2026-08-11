@@ -8,6 +8,7 @@ import {
   useSharedClaudeAvailability,
 } from "@/claude/claude-availability-context";
 import { ClaudeSetupDialog } from "@/claude/claude-setup-dialog";
+import { useClaudeConnections } from "@/claude/use-claude-connections";
 import { rememberLastRoute } from "@/lib/last-route";
 import { WorkspaceShell } from "./workspace-shell";
 
@@ -28,7 +29,9 @@ export function WorkspaceLayout() {
 function WorkspaceChrome() {
   const { availability, refresh } = useSharedClaudeAvailability();
   const [claudeSetup, setClaudeSetup] = useState(readClaudeSetupState);
+  const { activeConnection } = useClaudeConnections();
   const awaitingSummary = useQuery(api.feed.awaitingSummary);
+  const drafts = useQuery(api.assignments.listDrafts);
   const pathname = useRouterState({ select: (state) => state.location.pathname });
 
   useEffect(function rememberWhereTheTeacherWas() {
@@ -48,9 +51,15 @@ function WorkspaceChrome() {
     <>
       <WorkspaceShell
         availability={availability}
-        badgeCount={awaitingSummary?.length ?? 0}
+        /* The signed-in email is the identity a teacher recognises; the
+           connection's own label is only a fallback for a login that has not
+           reported one yet. */
+        accountName={
+          activeConnection?.account?.email ?? activeConnection?.label ?? "Claude Code"
+        }
+        awaitingSummaryCount={awaitingSummary?.length ?? 0}
+        draftsReadyCount={drafts?.length ?? 0}
         contentKey={pathname}
-        onOpenClaudeSetup={() => setClaudeSetup((current) => ({ ...current, isOpen: true }))}
       >
         <Outlet />
       </WorkspaceShell>

@@ -1,16 +1,32 @@
 export type PublicQuestionContent =
   | { kind: "multiple_choice"; choices: string[] }
-  | { kind: "fill_blank"; text: string; blankCount: number }
+  | {
+      kind: "fill_blank";
+      text: string;
+      blankCount: number;
+      /** One entry per blank; `null` where the blank has no bracketed source word. */
+      hints: (string | null)[];
+    }
   | { kind: "matching"; lefts: string[]; rights: string[] }
+  | { kind: "select_cloze"; text: string; gaps: { options: string[] }[] }
+  /** A sentence with one wrong phrase flagged; the student retypes that phrase. */
+  | { kind: "error_fix"; before: string; flagged: string; after: string }
   | { kind: "open_response" };
 
 export type AnswerResponse =
   | { kind: "choice"; choiceIndex: number }
   | { kind: "blanks"; values: string[] }
   | { kind: "matches"; rights: string[] }
+  | { kind: "selections"; selectedOptions: number[] }
   | { kind: "text"; text: string };
 
-export interface PlayerQuestion {
+/** The named set an activity belongs to, mirroring a worksheet's sections. */
+export type QuestionSet = {
+  title: string;
+  task: string;
+};
+
+export type PlayerQuestion = {
   _id: string;
   order: number;
   type: string;
@@ -19,7 +35,37 @@ export interface PlayerQuestion {
   content: PublicQuestionContent;
   points: number;
   difficulty: string;
+  set?: QuestionSet;
+};
+
+/**
+ * Sets in the order they appear, with the steps that belong to each. Consecutive
+ * activities sharing a title are one set, so a repeated title later in the sheet
+ * starts a new one rather than merging into the earlier section.
+ */
+export function groupQuestionsIntoSets<Question extends { set?: QuestionSet }>(
+  questions: Question[],
+) {
+  const sets: { title: string; task: string; questions: Question[]; firstStep: number }[] = [];
+  questions.forEach((question, index) => {
+    const title = question.set?.title ?? "";
+    const current = sets.at(-1);
+    if (current && current.title === title) {
+      current.questions.push(question);
+      return;
+    }
+    sets.push({
+      title,
+      task: question.set?.task ?? "",
+      questions: [question],
+      firstStep: index + 1,
+    });
+  });
+  return sets;
 }
+
+/** Sentinel for a gap the student has not answered yet. */
+export const UNSELECTED_OPTION = -1;
 
 export function emptyResponse(content: PublicQuestionContent): AnswerResponse {
   switch (content.kind) {
@@ -29,6 +75,12 @@ export function emptyResponse(content: PublicQuestionContent): AnswerResponse {
       return { kind: "blanks", values: Array.from({ length: content.blankCount }, () => "") };
     case "matching":
       return { kind: "matches", rights: content.lefts.map(() => "") };
+    case "select_cloze":
+      return {
+        kind: "selections",
+        selectedOptions: content.gaps.map(() => UNSELECTED_OPTION),
+      };
+    case "error_fix":
     case "open_response":
       return { kind: "text", text: "" };
   }
@@ -42,6 +94,27 @@ export function isAnswerComplete(response: AnswerResponse) {
       return response.values.every((value) => value.trim().length > 0);
     case "matches":
       return response.rights.every((right) => right.length > 0);
+    case "selections":
+      return response.selectedOptions.every((option) => option >= 0);
+    case "text":
+      return response.text.trim().length > 0;
+  }
+}
+
+/**
+ * Whether the student has put anything at all into the answer. A skipped step
+ * has nothing worth sending, while a half-finished one still deserves saving.
+ */
+export function hasAnyAnswer(response: AnswerResponse) {
+  switch (response.kind) {
+    case "choice":
+      return response.choiceIndex >= 0;
+    case "blanks":
+      return response.values.some((value) => value.trim().length > 0);
+    case "matches":
+      return response.rights.some((right) => right.length > 0);
+    case "selections":
+      return response.selectedOptions.some((option) => option >= 0);
     case "text":
       return response.text.trim().length > 0;
   }
@@ -49,10 +122,10 @@ export function isAnswerComplete(response: AnswerResponse) {
 
 const BLANK_MARKER = /\{\{(\d+)\}\}/g;
 
-export interface TextSegment {
+export type TextSegment = {
   text: string;
   blankIndex: number | null;
-}
+};
 
 /**
  * Splits `He {{1}} already {{2}}` into literal text and blank placeholders so the

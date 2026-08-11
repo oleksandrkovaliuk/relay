@@ -11,7 +11,7 @@ The desktop integration is intentionally based on T3 Code's current Claude imple
 | [`ClaudeHome.ts`](https://github.com/pingdotgg/t3code/blob/78f462c4e18c8ea5e5037dc916389a3b72246025/apps/server/src/provider/Drivers/ClaudeHome.ts) | Preserve `HOME` so macOS Keychain OAuth remains available; use `CLAUDE_CONFIG_DIR` only when an isolated Claude profile is explicitly configured. |
 | [`ClaudeTextGeneration.ts`](https://github.com/pingdotgg/t3code/blob/78f462c4e18c8ea5e5037dc916389a3b72246025/apps/server/src/textGeneration/ClaudeTextGeneration.ts) | Require schema-constrained output and validate the result again at the process boundary. |
 
-T3 Code supports a general coding-agent control surface. ERM deliberately narrows that model:
+T3 Code supports a general coding-agent control surface. Relay deliberately narrows that model:
 
 - Claude runs only in Electron's main process.
 - The renderer receives a typed preload API, never Node.js or Claude credentials.

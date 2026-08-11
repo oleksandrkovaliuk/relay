@@ -49,35 +49,37 @@ export function ClaudeSetupDialog({
     <Dialog
       open={isOpen}
       onOpenChange={(nextIsOpen) => {
-        if (!nextIsOpen && isFirstRun) return;
+        // Dismissing on the very first run means the same thing as "continue
+        // without Claude", so it must never trap the teacher in the dialog.
+        if (!nextIsOpen && isFirstRun) {
+          onContinue();
+          return;
+        }
         onOpenChange(nextIsOpen);
       }}
     >
-      <DialogContent
-        className="gap-4 rounded-2xl p-5 sm:max-w-[460px]"
-        showCloseButton={!isFirstRun}
-      >
+      <DialogContent className="gap-4 rounded-2xl p-5 sm:max-w-[460px]">
         <DialogHeader className="gap-2 pr-8">
-          <p className="text-[11px] font-semibold uppercase tracking-[0.1em] text-foreground/45">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.1em] text-muted-foreground">
             Local capability
           </p>
           <DialogTitle className="text-balance text-[21px] font-semibold leading-7 tracking-[-0.03em]">
             {getDialogTitle({ isFirstRun, isReady, isInstalled })}
           </DialogTitle>
-          <DialogDescription className="text-pretty text-[13.5px] leading-6 text-foreground/65">
+          <DialogDescription className="text-pretty text-[13.5px] leading-6 text-muted-foreground">
             Claude Code runs on this Mac and powers homework generation and answer summaries.
-            This check is not an ERM sign-in and does not identify the teacher using ERM.
+            This check is not a Relay sign-in and does not identify the teacher using Relay.
           </DialogDescription>
         </DialogHeader>
 
-        <div className="overflow-hidden rounded-2xl bg-black/[0.025] shadow-[inset_0_0_0_1px_rgba(0,0,0,.06)]">
+        <div className="overflow-hidden rounded-2xl border border-border bg-muted/40">
           <CapabilityCheck
             isChecking={isChecking}
             isComplete={isInstalled}
             label="Claude Code installed"
           />
           <CapabilityCheck
-            className="border-t border-black/[0.06]"
+            className="border-t border-border/70"
             isChecking={isChecking}
             isComplete={isAuthenticated}
             label="Claude Code authenticated"
@@ -85,16 +87,17 @@ export function ClaudeSetupDialog({
         </div>
 
         {!isChecking && !isReady ? (
-          <div className="text-pretty text-[12.5px] leading-5 text-foreground/60">
-            <p>
-              Install Claude Code, run <code className="font-mono text-foreground">claude</code>,
-              complete its authentication flow, then retry the check in ERM.
-            </p>
+          <div className="text-pretty text-[12.5px] leading-5 text-muted-foreground">
+            <p>Install Claude Code, then sign in from Settings and re-check here.</p>
             {availability.problem ? (
               <p className="mt-2 text-destructive">{availability.problem}</p>
             ) : null}
           </div>
         ) : null}
+
+        <p className="text-pretty text-[12.5px] leading-5 text-muted-foreground">
+          Manage which Claude accounts this workspace generates with in Settings.
+        </p>
 
         <DialogFooter className="items-stretch sm:items-center sm:justify-between">
           <Button
@@ -149,16 +152,16 @@ function CapabilityCheck({
       <HugeiconsIcon
         className={cn(
           "shrink-0",
-          isChecking && "animate-spin text-foreground/45",
+          isChecking && "animate-spin text-muted-foreground",
           !isChecking && isComplete && "text-primary",
-          !isChecking && !isComplete && "text-foreground/30",
+          !isChecking && !isComplete && "text-ink-faint",
         )}
         icon={icon}
         size={17}
         strokeWidth={1.9}
       />
-      <span className="text-[13px] font-medium text-foreground/80">{label}</span>
-      <span className="ml-auto text-[11.5px] text-foreground/50">
+      <span className="text-[13px] font-medium text-foreground">{label}</span>
+      <span className="ml-auto text-[11.5px] text-muted-foreground">
         {isChecking ? "Checking" : isComplete ? "Ready" : "Needs setup"}
       </span>
     </div>
@@ -174,7 +177,7 @@ function getDialogTitle({
   isInstalled: boolean;
   isReady: boolean;
 }) {
-  if (isFirstRun) return "Welcome to ERM";
+  if (isFirstRun) return "Welcome to Relay";
   if (isReady) return "Claude is ready";
   if (isInstalled) return "Finish Claude setup";
   return "Connect local Claude";

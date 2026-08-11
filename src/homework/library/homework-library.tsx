@@ -6,7 +6,6 @@ import {
   ClipboardListIcon,
   Copy01Icon,
   Delete02Icon,
-  StarIcon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { useState } from "react";
@@ -16,14 +15,17 @@ import type { Id } from "@convex/_generated/dataModel";
 import { ListSkeleton } from "@/components/list-skeleton";
 import { SectionHeading } from "@/components/section-heading";
 import { Button } from "@/components/ui/button";
+import { Avatar, AvatarFallback, AvatarGroup, AvatarGroupCount } from "@/components/ui/avatar";
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import {
   Empty,
   EmptyContent,
@@ -34,8 +36,9 @@ import {
 } from "@/components/ui/empty";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { cn, initials } from "@/lib/utils";
 import { buildShareUrl } from "@/lib/share-links";
+import { HomeworkGlyph } from "@/homework/homework-glyph";
+import { initials } from "@/lib/utils";
 import { GeneratingHomework } from "./generating-homework";
 
 type HomeworkFilter = "all" | "published" | "drafts" | "closed";
@@ -67,7 +70,9 @@ export function HomeworkLibrary({
   const [isDiscarding, setIsDiscarding] = useState(false);
   const [discardError, setDiscardError] = useState<string | null>(null);
 
-  if (assignments === undefined || drafts === undefined) return <LoadingState />;
+  if (assignments === undefined || drafts === undefined) {
+    return <LoadingState />;
+  }
 
   const publishedAssignments = assignments.filter((assignment) => assignment.status === "published");
   const closedAssignments = assignments.filter((assignment) => assignment.status === "closed");
@@ -139,7 +144,7 @@ export function HomeworkLibrary({
         </Tabs>
 
         <Button size="lg" onClick={onCreate}>
-          <HugeiconsIcon icon={Add01Icon} size={15} strokeWidth={2} /> New homework
+          <HugeiconsIcon icon={Add01Icon} size={15} strokeWidth={2} aria-hidden /> New homework
         </Button>
       </div>
 
@@ -150,7 +155,7 @@ export function HomeworkLibrary({
           <Empty className="border-0">
             <EmptyHeader>
               <EmptyMedia variant="icon">
-                <HugeiconsIcon icon={ClipboardListIcon} size={19} strokeWidth={1.8} />
+                <HugeiconsIcon icon={ClipboardListIcon} size={20} strokeWidth={1.8} />
               </EmptyMedia>
               <EmptyTitle>
                 {filter === "all" ? "No homework yet" : `No ${filter} homework`}
@@ -174,47 +179,41 @@ export function HomeworkLibrary({
 
       {visibleDrafts.length > 0 ? (
         <section className="grid gap-3">
-          <SectionHeading title="Ready for review" />
+          <SectionHeading title="Drafts" />
           <div className="panel divide-y divide-border/70 overflow-hidden">
             {visibleDrafts.map((draft) => (
               <article
                 key={draft._id}
-                className="grid gap-4 px-5 py-5 xl:px-6 xl:py-6"
+                className="group/row flex items-center gap-3 px-4 py-3 transition-colors duration-150 hover:bg-muted/35 xl:px-5"
               >
-                <div className="flex min-w-0 items-start justify-between gap-4">
-                  <StatusLabel tone="draft" label="Draft" />
-                  <div className="flex shrink-0 items-center gap-1">
-                    <Button variant="ghost" size="sm" onClick={() => onOpenDraft(draft._id)}>
-                      Review & preview
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="text-destructive hover:bg-destructive/10 hover:text-destructive"
-                      onClick={() => {
-                        setDiscardError(null);
-                        setDraftToDiscard(draft);
-                      }}
-                    >
-                      <HugeiconsIcon icon={Delete02Icon} size={13} strokeWidth={1.9} />
-                      Clear draft
-                    </Button>
-                  </div>
-                </div>
-                <div className="min-w-0 max-w-5xl">
-                  <h3 className="text-balance text-[15px] font-semibold leading-5 tracking-[-0.015em] xl:text-base">
+                <HomeworkGlyph id={draft._id} />
+                <button
+                  type="button"
+                  onClick={() => onOpenDraft(draft._id)}
+                  className="min-w-0 flex-1 text-left outline-none focus-visible:underline"
+                >
+                  <span className="block truncate text-[14px] font-medium tracking-[-0.01em]">
                     {draft.title}
-                  </h3>
-                  <p className="mt-1.5 line-clamp-2 text-pretty text-[13px] leading-5 text-foreground/72 xl:text-sm xl:leading-6">
-                    {draft.summary}
-                  </p>
-                </div>
-                <div className="flex min-w-0 items-end justify-between gap-4">
-                  <p className="text-[12px] text-foreground/62 numeric xl:text-[13px]">
-                    {draft.questionCount} activities · {draft.estimatedMinutes} min
-                  </p>
-                  <StudentAttribution name={draft.studentName} />
-                </div>
+                  </span>
+                  <span className="mt-0.5 block truncate text-[12px] text-muted-foreground numeric">
+                    {describeDraftMeta(draft)}
+                  </span>
+                </button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="shrink-0 opacity-0 transition-opacity duration-150 focus-visible:opacity-100 group-hover/row:opacity-100"
+                  onClick={() => {
+                    setDiscardError(null);
+                    setDraftToDiscard(draft);
+                  }}
+                >
+                  <HugeiconsIcon icon={Delete02Icon} size={14} strokeWidth={2} aria-hidden />
+                  <span className="sr-only sm:not-sr-only">Clear</span>
+                </Button>
+                <Button variant="outline" size="sm" className="shrink-0" onClick={() => onOpenDraft(draft._id)}>
+                  Review
+                </Button>
               </article>
             ))}
           </div>
@@ -223,9 +222,7 @@ export function HomeworkLibrary({
 
       {visibleAssignments.length > 0 ? (
         <section className="grid gap-3">
-          <SectionHeading
-            title={filter === "all" ? "Assignments" : filter === "closed" ? "Closed" : "Published"}
-          />
+          <SectionHeading title={filter === "closed" ? "Closed" : "Published"} />
           <div className="panel divide-y divide-border/70 overflow-hidden">
             {visibleAssignments.map((assignment) => {
               const shareUrl = buildShareUrl(assignment.shareToken);
@@ -233,87 +230,69 @@ export function HomeworkLibrary({
               return (
                 <article
                   key={assignment._id}
-                  className="grid gap-4 px-5 py-5 xl:px-6 xl:py-6"
+                  className="group/row flex items-stretch gap-3 px-4 py-3 transition-colors duration-150 hover:bg-muted/35 xl:px-5"
                 >
-                  <div className="flex min-w-0 items-start justify-between gap-4">
-                    <StatusLabel
-                      tone={isPublished ? "published" : "closed"}
-                      label={isPublished ? "Published" : "Closed"}
-                    />
-                    <div className="flex shrink-0 flex-wrap items-center justify-end gap-1">
+                  <HomeworkGlyph id={assignment.homeworkDraftId} />
+                  <div className="min-w-0 flex-1 self-stretch">
+                    <p className="flex min-w-0 items-center gap-2">
+                      <span className="truncate text-[14px] font-medium tracking-[-0.01em]">
+                        {assignment.title}
+                      </span>
+                      {isPublished ? null : (
+                        <span className="shrink-0 text-[11px] font-medium text-muted-foreground">
+                          Closed
+                        </span>
+                      )}
+                    </p>
+                    <p className="mt-0.5 truncate text-[12px] text-muted-foreground numeric">
+                      {describeAssignmentMeta(assignment)}
+                    </p>
+                  </div>
+
+                  <div className="flex shrink-0 flex-col items-end justify-between gap-2">
+                    <div className="flex items-center gap-1 opacity-0 transition-opacity duration-150 focus-within:opacity-100 group-hover/row:opacity-100">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => onOpenDraft(assignment.homeworkDraftId)}
+                      >
+                        Preview & edit
+                      </Button>
                       <Button
                         variant="ghost"
                         size="sm"
                         nativeButton={false}
-                        render={
-                          <a href={shareUrl} target="_blank" rel="noopener noreferrer" />
-                        }
+                        render={<a href={shareUrl} target="_blank" rel="noopener noreferrer" />}
                       >
-                        <HugeiconsIcon icon={ArrowUpRight01Icon} size={13} strokeWidth={1.9} />
-                        Preview
+                        <HugeiconsIcon icon={ArrowUpRight01Icon} size={14} strokeWidth={2} aria-hidden />
+                        <span className="sr-only sm:not-sr-only">Student link</span>
                       </Button>
+                      {isPublished ? (
+                        <Button variant="ghost" size="sm" onClick={() => setAssignmentToClose(assignment)}>
+                          Close
+                        </Button>
+                      ) : null}
                       <Button
-                        variant="ghost"
+                        variant="outline"
                         size="sm"
                         onClick={() => void copyShareLink(assignment.shareToken, shareUrl)}
                       >
                         <HugeiconsIcon
-                          icon={copiedToken === assignment.shareToken ? CheckmarkCircle02Icon : Copy01Icon}
+                          icon={
+                            copiedToken === assignment.shareToken ? CheckmarkCircle02Icon : Copy01Icon
+                          }
                           size={13}
-                          strokeWidth={1.9}
+                          strokeWidth={2}
+                          aria-hidden
                         />
                         {copiedToken === assignment.shareToken
                           ? "Copied"
                           : copyFailureToken === assignment.shareToken
-                            ? "Try copy again"
-                            : "Copy link"}
+                            ? "Retry"
+                            : "Link"}
                       </Button>
-                      {isPublished ? (
-                        <Button variant="ghost" size="sm" onClick={() => setAssignmentToClose(assignment)}>
-                          Close access
-                        </Button>
-                      ) : null}
                     </div>
-                  </div>
-
-                  <div className="min-w-0 max-w-5xl">
-                    <h3 className="text-balance text-[15px] font-semibold leading-5 tracking-[-0.015em] xl:text-base">
-                      {assignment.title}
-                    </h3>
-                    <p className="mt-1.5 line-clamp-2 text-pretty text-[13px] leading-5 text-foreground/72 xl:text-sm xl:leading-6">
-                      {assignment.summary}
-                    </p>
-                    {assignment.latestFeedback?.comment ? (
-                      <p className="mt-2 line-clamp-1 text-pretty text-[12px] leading-5 text-foreground/58 xl:text-[13px]">
-                        <span className="font-medium text-foreground/72">
-                          Latest from {assignment.latestFeedback.studentName}: 
-                        </span>
-                        “{assignment.latestFeedback.comment}”
-                      </p>
-                    ) : null}
-                  </div>
-
-                  <div className="flex min-w-0 items-end justify-between gap-4">
-                    <div className="flex min-w-0 flex-wrap items-center gap-x-2.5 gap-y-1 text-[12px] text-foreground/62 numeric xl:text-[13px]">
-                      <span>
-                        {assignment.questionCount} activities · {assignment.submittedCount} submitted
-                        {assignment.startedCount > assignment.submittedCount
-                          ? ` · ${assignment.startedCount - assignment.submittedCount} in progress`
-                          : ""}
-                        {` · ${formatPublishedDate(assignment.publishedAt)}`}
-                        {assignment.dueAt ? ` · due ${formatPublishedDate(assignment.dueAt)}` : ""}
-                      </span>
-                      {assignment.averageRating !== undefined ? (
-                        <span
-                          className="inline-flex items-center gap-1 font-medium text-foreground/72"
-                          aria-label={`${assignment.averageRating} out of 5 from ${assignment.feedbackCount} student ${assignment.feedbackCount === 1 ? "rating" : "ratings"}`}
-                        >
-                          <HugeiconsIcon icon={StarIcon} size={13} strokeWidth={1.9} className="text-amber-600" />
-                          {assignment.averageRating}/5 · {assignment.feedbackCount} {assignment.feedbackCount === 1 ? "rating" : "ratings"}
-                        </span>
-                      ) : null}
-                    </div>
-                    <StudentAttribution name={assignment.studentName} />
+                    <AssignedStudentAvatars students={assignment.assignedStudents} />
                   </div>
                 </article>
               );
@@ -322,31 +301,34 @@ export function HomeworkLibrary({
         </section>
       ) : null}
 
-      <Dialog
+      <AlertDialog
         open={assignmentToClose !== null}
         onOpenChange={(isOpen) => {
           if (!isOpen && !isClosing) setAssignmentToClose(null);
         }}
       >
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Close student access?</DialogTitle>
-            <DialogDescription>
-              The link for “{assignmentToClose?.title}” will stop working immediately. Existing submissions stay available.
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button variant="ghost" disabled={isClosing} onClick={() => setAssignmentToClose(null)}>
-              Keep open
-            </Button>
-            <Button variant="danger" disabled={isClosing} onClick={() => void closeSelectedAssignment()}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Close student access?</AlertDialogTitle>
+            <AlertDialogDescription>
+              The link for “{assignmentToClose?.title}” will stop working immediately. Existing
+              submissions stay available.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isClosing}>Keep open</AlertDialogCancel>
+            <AlertDialogAction
+              variant="danger"
+              disabled={isClosing}
+              onClick={() => void closeSelectedAssignment()}
+            >
               {isClosing ? "Closing…" : "Close access"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
-      <Dialog
+      <AlertDialog
         open={draftToDiscard !== null}
         onOpenChange={(isOpen) => {
           if (!isOpen && !isDiscarding) {
@@ -355,80 +337,85 @@ export function HomeworkLibrary({
           }
         }}
       >
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Clear this draft?</DialogTitle>
-            <DialogDescription>
-              “{draftToDiscard?.title}” and all of its generated activities will be permanently removed.
-            </DialogDescription>
-          </DialogHeader>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Clear this draft?</AlertDialogTitle>
+            <AlertDialogDescription>
+              “{draftToDiscard?.title}” and all of its generated activities will be permanently
+              removed.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
           {discardError ? (
             <p role="alert" className="text-[12.5px] leading-5 text-destructive">
               {discardError}
             </p>
           ) : null}
-          <DialogFooter>
-            <Button
-              variant="ghost"
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isDiscarding}>Keep draft</AlertDialogCancel>
+            <AlertDialogAction
+              variant="danger"
               disabled={isDiscarding}
-              onClick={() => {
-                setDraftToDiscard(null);
-                setDiscardError(null);
-              }}
+              onClick={() => void discardSelectedDraft()}
             >
-              Keep draft
-            </Button>
-            <Button variant="danger" disabled={isDiscarding} onClick={() => void discardSelectedDraft()}>
               {isDiscarding ? "Clearing…" : "Clear draft"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
       <p className="sr-only" aria-live="polite">{copyAnnouncement}</p>
     </div>
   );
 }
 
-function StatusLabel({
-  tone,
-  label,
+function AssignedStudentAvatars({
+  students,
 }: {
-  tone: "draft" | "published" | "closed";
-  label: string;
+  students: PublishedAssignment["assignedStudents"];
 }) {
+  if (students.length === 0) {
+    return <span className="shrink-0 pb-1 text-[11px] text-muted-foreground">Unassigned</span>;
+  }
+
+  const visibleStudents = students.slice(0, 3);
+  const hiddenStudentCount = students.length - visibleStudents.length;
   return (
-    <span
-      className={cn(
-        "inline-flex items-center gap-2 text-[12px] font-semibold xl:text-[13px]",
-        tone === "published" && "text-emerald-700",
-        tone === "draft" && "text-amber-700",
-        tone === "closed" && "text-foreground/58",
-      )}
-    >
-      <span
-        aria-hidden
-        className={cn(
-          "size-2 shrink-0 rounded-full shadow-[0_0_0_3px_oklch(0_0_0/.035)]",
-          tone === "published" && "bg-emerald-600",
-          tone === "draft" && "bg-amber-500",
-          tone === "closed" && "bg-muted-foreground/40",
-        )}
-      />
-      {label}
-    </span>
+    <AvatarGroup className="shrink-0 pb-0.5" aria-label={`Assigned to ${students.map((student) => student.name).join(", ")}`}>
+      {visibleStudents.map((student) => (
+        <Avatar key={student._id} size="sm" title={student.name}>
+          <AvatarFallback className="bg-primary-soft text-[9px] font-semibold text-primary">
+            {initials(student.name)}
+          </AvatarFallback>
+        </Avatar>
+      ))}
+      {hiddenStudentCount > 0 ? (
+        <AvatarGroupCount className="text-[9px]">+{hiddenStudentCount}</AvatarGroupCount>
+      ) : null}
+    </AvatarGroup>
   );
 }
 
-function StudentAttribution({ name }: { name?: string | null }) {
-  if (!name) return null;
-  return (
-    <span className="flex min-w-0 shrink-0 items-center gap-2 text-[12px] font-medium text-foreground/68 xl:text-[13px]">
-      <span className="grid size-6 shrink-0 place-items-center rounded-full bg-muted text-[9.5px] font-semibold text-foreground/72">
-        {initials(name)}
-      </span>
-      <span className="max-w-44 truncate">{name}</span>
-    </span>
-  );
+/** One line, only what distinguishes this set from the others in the list. */
+function describeDraftMeta(draft: HomeworkDraft) {
+  return [
+    `${draft.questionCount} activities`,
+    `${draft.estimatedMinutes} min`,
+    draft.studentName,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+}
+
+function describeAssignmentMeta(assignment: PublishedAssignment) {
+  const inProgress = assignment.startedCount - assignment.submittedCount;
+  return [
+    assignment.studentName,
+    `${assignment.submittedCount}/${assignment.startedCount || 0} submitted`,
+    inProgress > 0 ? `${inProgress} in progress` : null,
+    assignment.dueAt ? `due ${formatPublishedDate(assignment.dueAt)}` : null,
+    assignment.averageRating === undefined ? null : `${assignment.averageRating}/5`,
+  ]
+    .filter(Boolean)
+    .join(" · ");
 }
 
 function formatPublishedDate(timestamp: number) {

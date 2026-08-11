@@ -1,7 +1,8 @@
 import { CrownIcon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
+import { Link } from "@tanstack/react-router";
 import { useMutation, useQuery } from "convex/react";
-import { AlertTriangle, Clock3, Eye, Inbox, Star } from "lucide-react";
+import { AlertTriangle, ArrowRight, Clock3, Eye, Inbox, Star } from "lucide-react";
 import { useState } from "react";
 
 import { api } from "@convex/_generated/api";
@@ -17,12 +18,21 @@ import {
   isSameDay,
 } from "@/lib/utils";
 import { getDesktopBridge } from "@/claude/desktop-bridge";
+import type { InsightSection } from "@/insights/insight-filter";
+import {
+  InsightHighlightList,
+  InsightHighlightsEmpty,
+  InsightHighlightsSkeleton,
+} from "@/insights/insight-highlights";
 import { SubmissionDetail } from "@/submissions/submission-detail";
+import { HomeworkGlyph } from "@/homework/homework-glyph";
 
 type FeedItem = NonNullable<ReturnType<typeof useFeed>>[number];
 
 const PANEL_CLASS = "panel overflow-hidden";
 const MAXIMUM_ATTENTION_STUDENTS = 4;
+/** Today is a preview: enough findings to act on, not the whole page. */
+const PREVIEW_HIGHLIGHT_COUNT = 3;
 
 type StudentMomentum = {
   key: string;
@@ -114,8 +124,14 @@ export function TodayFeed({ now }: { now: number }) {
         </div>
       </section>
 
+      <InsightsPreview now={now} onOpenSubmission={setOpenSubmissionId} />
+
       <section className="grid gap-3" aria-labelledby="student-signals-heading">
-        <SectionHeading id="student-signals-heading" title="Student signals" />
+        <SectionHeading
+          id="student-signals-heading"
+          title="Student signals"
+          action={<ViewAllInsights section="students" label="Student performance" />}
+        />
         <div className="grid gap-3 xl:grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)]">
           <MomentumHighlight
             student={highlightedStudent}
@@ -129,7 +145,11 @@ export function TodayFeed({ now }: { now: number }) {
       </section>
 
       <section className="grid gap-3" aria-labelledby="activity-heading">
-        <SectionHeading id="activity-heading" title="Recent activity" />
+        <SectionHeading
+          id="activity-heading"
+          title="Recent activity"
+          action={<ViewAllInsights section="questions" label="Question insights" />}
+        />
         {feed.length === 0 ? (
           <div className={PANEL_CLASS}>
             <div className="flex flex-col items-center px-6 py-14 text-center">
@@ -164,6 +184,56 @@ export function TodayFeed({ now }: { now: number }) {
         />
       ) : null}
     </div>
+  );
+}
+
+/**
+ * The short version of Insights: the top findings across all students, with the
+ * way through to the full page and its filters.
+ */
+function InsightsPreview({
+  now,
+  onOpenSubmission,
+}: {
+  now: number;
+  onOpenSubmission: (submissionId: Id<"submissions">) => void;
+}) {
+  const highlights = useQuery(api.dashboard.highlights, { now });
+
+  return (
+    <section className="grid gap-3" aria-labelledby="insights-preview-heading">
+      <SectionHeading
+        id="insights-preview-heading"
+        title="What stands out"
+        action={<ViewAllInsights section="highlights" label="All insights" />}
+      />
+      {highlights === undefined ? (
+        <InsightHighlightsSkeleton rows={PREVIEW_HIGHLIGHT_COUNT} />
+      ) : highlights.length === 0 ? (
+        <InsightHighlightsEmpty isFiltered={false} />
+      ) : (
+        <InsightHighlightList
+          highlights={highlights.slice(0, PREVIEW_HIGHLIGHT_COUNT)}
+          onOpenSubmission={onOpenSubmission}
+        />
+      )}
+    </section>
+  );
+}
+
+/** Sends the teacher to the matching part of Insights, not just its top. */
+function ViewAllInsights({ section, label }: { section: InsightSection; label: string }) {
+  return (
+    <Button
+      variant="ghost"
+      size="sm"
+      nativeButton={false}
+      aria-label={`View all insights: ${label}`}
+      render={<Link to="/insights" search={{ section }} />}
+    >
+      View all
+      <ArrowRight size={14} aria-hidden />
+    </Button>
   );
 }
 
@@ -507,8 +577,9 @@ function FeedCard({
           <p className="truncate text-[14.5px] font-semibold tracking-[-0.01em] xl:text-[15.5px]">
             {item.studentName}
           </p>
-          <p className="mt-0.5 truncate text-[12.5px] text-muted-foreground xl:text-[13.5px]">
-            {item.assignmentTitle}
+          <p className="mt-0.5 flex min-w-0 items-center gap-1.5 text-[12.5px] text-muted-foreground xl:text-[13.5px]">
+            <HomeworkGlyph id={item.assignmentId} size="sm" />
+            <span className="truncate">{item.assignmentTitle}</span>
           </p>
 
           <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2 text-[12px] xl:text-[13px]">

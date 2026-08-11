@@ -55,6 +55,13 @@ export function describeClaudeRuntimeEvent(event: ClaudeRuntimeEvent): ClaudeAct
   return { kind: "failed", label: "Generation failed" };
 }
 
+/**
+ * A long generation can emit hundreds of tool events. The panel is a scrollable
+ * log, not an audit trail, so the oldest entries are dropped rather than growing
+ * the array — and the re-render cost with it — without limit.
+ */
+const MAXIMUM_ACTIVITY_ENTRIES = 200;
+
 export function appendClaudeActivity(
   currentEntries: ClaudeActivityEntry[],
   update: ClaudeActivityUpdate,
@@ -66,7 +73,10 @@ export function appendClaudeActivity(
     update.kind === "streaming" && latestEntry?.kind === "streaming";
   if (isRepeatedStreamingUpdate) return currentEntries;
 
-  return [...currentEntries, { ...update, id, elapsedMilliseconds }];
+  const appended = [...currentEntries, { ...update, id, elapsedMilliseconds }];
+  return appended.length > MAXIMUM_ACTIVITY_ENTRIES
+    ? appended.slice(-MAXIMUM_ACTIVITY_ENTRIES)
+    : appended;
 }
 
 function formatToolName(toolName: string) {

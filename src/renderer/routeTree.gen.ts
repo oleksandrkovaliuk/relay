@@ -12,6 +12,7 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as HomeworkRouteImport } from './routes/homework'
 import { Route as InsightsRouteImport } from './routes/insights'
+import { Route as SettingsRouteImport } from './routes/settings'
 import { Route as StudentsRouteImport } from './routes/students'
 import { Route as HomeworkIndexRouteImport } from './routes/homework.index'
 import { Route as HomeworkNewRouteImport } from './routes/homework.new'
@@ -32,6 +33,11 @@ const HomeworkRoute = HomeworkRouteImport.update({
 const InsightsRoute = InsightsRouteImport.update({
   id: '/insights',
   path: '/insights',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SettingsRoute = SettingsRouteImport.update({
+  id: '/settings',
+  path: '/settings',
   getParentRoute: () => rootRouteImport,
 } as any)
 const StudentsRoute = StudentsRouteImport.update({
@@ -71,6 +77,7 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/homework': typeof HomeworkRouteWithChildren
   '/insights': typeof InsightsRoute
+  '/settings': typeof SettingsRoute
   '/students': typeof StudentsRouteWithChildren
   '/homework/new': typeof HomeworkNewRoute
   '/homework/': typeof HomeworkIndexRoute
@@ -81,6 +88,7 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/insights': typeof InsightsRoute
+  '/settings': typeof SettingsRoute
   '/homework/new': typeof HomeworkNewRoute
   '/homework': typeof HomeworkIndexRoute
   '/students': typeof StudentsIndexRoute
@@ -92,6 +100,7 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/homework': typeof HomeworkRouteWithChildren
   '/insights': typeof InsightsRoute
+  '/settings': typeof SettingsRoute
   '/students': typeof StudentsRouteWithChildren
   '/homework/new': typeof HomeworkNewRoute
   '/homework/': typeof HomeworkIndexRoute
@@ -105,6 +114,7 @@ export interface FileRouteTypes {
     | '/'
     | '/homework'
     | '/insights'
+    | '/settings'
     | '/students'
     | '/homework/new'
     | '/homework/'
@@ -115,6 +125,7 @@ export interface FileRouteTypes {
   to:
     | '/'
     | '/insights'
+    | '/settings'
     | '/homework/new'
     | '/homework'
     | '/students'
@@ -125,6 +136,7 @@ export interface FileRouteTypes {
     | '/'
     | '/homework'
     | '/insights'
+    | '/settings'
     | '/students'
     | '/homework/new'
     | '/homework/'
@@ -137,6 +149,7 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   HomeworkRoute: typeof HomeworkRouteWithChildren
   InsightsRoute: typeof InsightsRoute
+  SettingsRoute: typeof SettingsRoute
   StudentsRoute: typeof StudentsRouteWithChildren
 }
 
@@ -161,6 +174,13 @@ declare module '@tanstack/react-router' {
       path: '/insights'
       fullPath: '/insights'
       preLoaderRoute: typeof InsightsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/settings': {
+      id: '/settings'
+      path: '/settings'
+      fullPath: '/settings'
+      preLoaderRoute: typeof SettingsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/students': {
@@ -242,6 +262,7 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   HomeworkRoute: HomeworkRouteWithChildren,
   InsightsRoute: InsightsRoute,
+  SettingsRoute: SettingsRoute,
   StudentsRoute: StudentsRouteWithChildren,
 }
 export const routeTree = rootRouteImport

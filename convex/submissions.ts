@@ -7,15 +7,21 @@ import {
   answerResponseValidator,
   answerStatsValidator,
   correctnessValidator,
+  describeCorrectAnswer,
+  describeResponse,
   gradeResponse,
+  gradeResponseParts,
   isAutoGradable,
   publicQuestionContentValidator,
   questionContentValidator,
+  toPublicContent,
 } from "./content";
+import { questionSetValidator, referenceRuleValidator } from "./schema";
 import { loadSubmissionDetail } from "./submissionLib";
 import { submissionFeedbackValueValidator } from "./feedback";
 
 const MAX_QUESTIONS = 40;
+const MAX_ASSIGNEES = 200;
 const MIN_RESUME_TOKEN_LENGTH = 16;
 const MIN_STUDENT_NAME_LENGTH = 2;
 
@@ -97,10 +103,25 @@ export const start = mutation({
       throw new Error("Homework is unavailable.");
     }
 
-    const student = assignment.studentId
+    const legacyStudent = assignment.studentId
       ? await ctx.db.get("students", assignment.studentId)
       : null;
-    const studentName = student?.name ?? args.studentName?.trim() ?? "";
+    const requestedStudentName = args.studentName?.trim() ?? "";
+    const assigneeLinks = await ctx.db
+      .query("assignmentStudents")
+      .withIndex("by_assignmentId_and_studentId", (index) =>
+        index.eq("assignmentId", assignment._id),
+      )
+      .take(MAX_ASSIGNEES);
+    const assignedStudents = await Promise.all(
+      assigneeLinks.map((link) => ctx.db.get("students", link.studentId)),
+    );
+    const matchedStudent = assignedStudents.find(
+      (student) =>
+        student?.name.localeCompare(requestedStudentName, undefined, { sensitivity: "base" }) === 0,
+    );
+    const student = legacyStudent ?? matchedStudent ?? null;
+    const studentName = student?.name ?? requestedStudentName;
     if (studentName.length < MIN_STUDENT_NAME_LENGTH) throw new Error("Enter your name.");
 
     const questions = await ctx.db
@@ -113,7 +134,7 @@ export const start = mutation({
 
     const submissionId = await ctx.db.insert("submissions", {
       assignmentId: assignment._id,
-      ...(assignment.studentId ? { studentId: assignment.studentId } : {}),
+      ...(student ? { studentId: student._id } : {}),
       studentName,
       resumeToken: args.resumeToken,
       status: "in_progress",
@@ -220,6 +241,114 @@ export const submit = mutation({
       percentage:
         submission.maxAutoScore === 0 ? 0 : Math.round((score / submission.maxAutoScore) * 100),
       pendingReviewCount,
+    };
+  },
+});
+
+const reviewItemValidator = v.object({
+  questionId: v.id("assignmentQuestions"),
+  order: v.number(),
+  type: v.string(),
+  prompt: v.string(),
+  instructions: v.string(),
+  content: publicQuestionContentValidator,
+  set: v.optional(questionSetValidator),
+  points: v.number(),
+  pointsAwarded: v.number(),
+  /** Absent means the student skipped it entirely. */
+  correctness: v.optional(correctnessValidator),
+  answered: v.boolean(),
+  yourAnswer: v.string(),
+  correctAnswer: v.union(v.string(), v.null()),
+  /** Why the right answer is right, written for the student. */
+  explanation: v.string(),
+  /** The order events really happened in, for a tense or sequence question. */
+  timeline: v.array(v.string()),
+  parts: v.array(
+    v.object({
+      label: v.string(),
+      given: v.string(),
+      expected: v.string(),
+      isCorrect: v.boolean(),
+      reason: v.union(v.string(), v.null()),
+    }),
+  ),
+});
+
+/**
+ * What the student sees after submitting: every activity with their own answer,
+ * the expected one, and the reason. Reading it needs the resume token, so a share
+ * link alone never exposes another student's work or the answer key.
+ */
+export const review = query({
+  args: { submissionId: v.id("submissions"), resumeToken: v.string() },
+  returns: v.union(
+    v.object({
+      assignmentTitle: v.string(),
+      studentName: v.string(),
+      status: v.union(v.literal("in_progress"), v.literal("submitted")),
+      score: v.number(),
+      maxAutoScore: v.number(),
+      percentage: v.number(),
+      pendingReviewCount: v.number(),
+      referenceRules: v.array(referenceRuleValidator),
+      items: v.array(reviewItemValidator),
+    }),
+    v.null(),
+  ),
+  handler: async (ctx, args) => {
+    const submission = await ctx.db.get("submissions", args.submissionId);
+    if (!submission) return null;
+    if (submission.resumeToken !== args.resumeToken) {
+      throw new Error("Invalid submission token.");
+    }
+
+    const assignment = await ctx.db.get("assignments", submission.assignmentId);
+    const questions = await ctx.db
+      .query("assignmentQuestions")
+      .withIndex("by_assignmentId_and_order", (q) => q.eq("assignmentId", submission.assignmentId))
+      .order("asc")
+      .take(MAX_QUESTIONS);
+    const answers = await ctx.db
+      .query("answers")
+      .withIndex("by_submissionId", (q) => q.eq("submissionId", submission._id))
+      .take(MAX_QUESTIONS);
+    const answersByQuestionId = new Map(answers.map((answer) => [answer.questionId, answer]));
+
+    return {
+      assignmentTitle: assignment?.title ?? "Homework",
+      studentName: submission.studentName,
+      status: submission.status,
+      score: submission.score ?? 0,
+      maxAutoScore: submission.maxAutoScore,
+      percentage:
+        submission.maxAutoScore === 0
+          ? 0
+          : Math.round(((submission.score ?? 0) / submission.maxAutoScore) * 100),
+      pendingReviewCount: submission.pendingReviewCount ?? 0,
+      referenceRules: assignment?.referenceRules ?? [],
+      items: questions.map((question) => {
+        const answer = answersByQuestionId.get(question._id);
+        return {
+          questionId: question._id,
+          order: question.order,
+          type: question.type,
+          prompt: question.prompt,
+          instructions: question.instructions,
+          content: toPublicContent(question.content),
+          ...(question.set ? { set: question.set } : {}),
+          points: question.points,
+          pointsAwarded: answer?.pointsAwarded ?? 0,
+          ...(answer?.correctness ? { correctness: answer.correctness } : {}),
+          answered: answer !== undefined,
+          yourAnswer: answer ? describeResponse(answer.response, question.content) : "",
+          correctAnswer: describeCorrectAnswer(question.content),
+          explanation: question.explanation,
+          timeline:
+            question.content.kind === "multiple_choice" ? (question.content.timeline ?? []) : [],
+          parts: answer ? gradeResponseParts(question.content, answer.response) : [],
+        };
+      }),
     };
   },
 });

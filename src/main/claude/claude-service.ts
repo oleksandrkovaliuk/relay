@@ -13,24 +13,43 @@ import {
 } from "@anthropic-ai/claude-agent-sdk";
 
 import {
+  attachHomeworkToBoardInputSchema,
+  boardAttachmentSchema,
   claudeAvailabilitySchema,
+  claudeBoardAttachmentResultSchema,
   claudeGenerationResultSchema,
+  claudeQuestionRewriteResultSchema,
   claudeSummaryResultSchema,
   generateHomeworkInputSchema,
   homeworkDraftSchema,
+  homeworkQuestionSchema,
+  rewriteHomeworkQuestionInputSchema,
   submissionSummarySchema,
   summarizeSubmissionInputSchema,
+  type AttachHomeworkToBoardInput,
   type ClaudeAvailability,
   type ClaudeGenerationResult,
   type ClaudeRuntimeEvent,
   type ClaudeSummaryResult,
   type GenerateHomeworkInput,
+  type RewriteHomeworkQuestionInput,
   type SummarizeSubmissionInput,
 } from "@/shared/claude";
-import { buildHomeworkPrompt, buildSummaryPrompt } from "./prompt";
-import { createHomeworkOutputSchema, createSummaryOutputSchema } from "./output-schema";
+import {
+  buildBoardAttachPrompt,
+  buildHomeworkPrompt,
+  buildQuestionRewritePrompt,
+  buildSummaryPrompt,
+} from "./prompt";
+import {
+  createBoardAttachOutputSchema,
+  createHomeworkOutputSchema,
+  createQuestionRewriteOutputSchema,
+  createSummaryOutputSchema,
+  extractStructuredOutput,
+} from "./output-schema";
 import { resolveClaudeExecutable } from "./resolve-claude-executable";
-import { allowReadOnlyMiroTools } from "./tool-policy";
+import { allowBoardAttachTools, allowReadOnlyMiroTools } from "./tool-policy";
 
 const execFileAsync = promisify(execFile);
 const CLAUDE_COMMAND_TIMEOUT_MILLISECONDS = 10_000;
@@ -40,6 +59,7 @@ const MIRO_MCP_URL = "https://mcp.miro.com";
 const GENERATION_MAX_TURNS = 8;
 const MIRO_GENERATION_MAX_TURNS = 16;
 const SUMMARY_MAX_TURNS = 4;
+const QUESTION_REWRITE_MAX_TURNS = 6;
 
 interface ActiveClaudeRequest {
   abortController: AbortController;
@@ -52,6 +72,12 @@ interface ClaudeServiceOptions {
   createQuery?: typeof query;
   openExternal?: (url: string) => Promise<void>;
   environment?: NodeJS.ProcessEnv;
+  /**
+   * Config directory of the Claude account to run as, resolved per call so
+   * switching account takes effect without restarting the app. `null` uses the
+   * CLI's own default location.
+   */
+  resolveConfigDir?: () => string | null;
 }
 
 type RuntimeEventListener = (event: ClaudeRuntimeEvent) => void;
@@ -88,7 +114,8 @@ export class ClaudeService {
   private readonly activeRequests = new Map<string, ActiveClaudeRequest>();
   private readonly binaryPath: string | null;
   private readonly createQuery: typeof query;
-  private readonly environment: NodeJS.ProcessEnv;
+  private readonly baseEnvironment: NodeJS.ProcessEnv;
+  private readonly resolveConfigDir: () => string | null;
   private readonly openExternal: (url: string) => Promise<void>;
   private readonly workingDirectory: string;
 
@@ -98,12 +125,20 @@ export class ClaudeService {
       environment: options.environment,
     });
     this.createQuery = options.createQuery ?? query;
-    this.environment = {
+    this.baseEnvironment = {
       ...(options.environment ?? process.env),
       CLAUDE_AGENT_SDK_CLIENT_APP: "erm-teacher-desktop/0.1.0",
     };
+    this.resolveConfigDir = options.resolveConfigDir ?? (() => null);
     this.openExternal = options.openExternal ?? (async () => undefined);
     this.workingDirectory = options.workingDirectory;
+  }
+
+  /** Layers the active account's config directory over the base environment. */
+  private get environment(): NodeJS.ProcessEnv {
+    const configDir = this.resolveConfigDir();
+    if (!configDir) return this.baseEnvironment;
+    return { ...this.baseEnvironment, CLAUDE_CONFIG_DIR: configDir };
   }
 
   async checkAvailability(): Promise<ClaudeAvailability> {
@@ -173,6 +208,57 @@ export class ClaudeService {
       requestId: input.requestId,
       summary: submissionSummarySchema.parse(completion.structuredOutput),
     });
+  }
+
+  async rewriteHomeworkQuestion(
+    unsafeInput: RewriteHomeworkQuestionInput,
+    emitEvent: RuntimeEventListener,
+  ) {
+    const input = rewriteHomeworkQuestionInputSchema.parse(unsafeInput);
+    const completion = await this.runStructuredRequest(
+      input.requestId,
+      buildQuestionRewritePrompt(input),
+      this.questionRewriteQueryOptions(),
+      emitEvent,
+    );
+    return claudeQuestionRewriteResultSchema.parse({
+      requestId: input.requestId,
+      question: homeworkQuestionSchema.parse(completion.structuredOutput),
+    });
+  }
+
+  async attachHomeworkToBoard(
+    unsafeInput: AttachHomeworkToBoardInput,
+    emitEvent: RuntimeEventListener,
+  ) {
+    const input = attachHomeworkToBoardInputSchema.parse(unsafeInput);
+    const completion = await this.runStructuredRequest(
+      input.requestId,
+      buildBoardAttachPrompt(input),
+      this.boardAttachQueryOptions(input.requestId, emitEvent),
+      emitEvent,
+    );
+    return claudeBoardAttachmentResultSchema.parse({
+      requestId: input.requestId,
+      attachment: boardAttachmentSchema.parse(completion.structuredOutput),
+    });
+  }
+
+  /** Reads the board and adds one card, through the teacher's own Miro MCP. */
+  private boardAttachQueryOptions(
+    requestId: string,
+    emitEvent: RuntimeEventListener,
+  ): ClaudeQueryOptions {
+    return {
+      ...this.baseQueryOptions(),
+      canUseTool: allowBoardAttachTools,
+      maxTurns: MIRO_GENERATION_MAX_TURNS,
+      outputFormat: { type: "json_schema", schema: createBoardAttachOutputSchema() },
+      tools: ["mcp__miro__*"],
+      mcpServers: { miro: { type: "http" as const, url: MIRO_MCP_URL } },
+      onElicitation: (request: ElicitationRequest) =>
+        this.handleElicitation(requestId, request, emitEvent),
+    };
   }
 
   private async runStructuredRequest(
@@ -267,6 +353,15 @@ export class ClaudeService {
     };
   }
 
+  private questionRewriteQueryOptions(): ClaudeQueryOptions {
+    return {
+      ...this.baseQueryOptions(),
+      maxTurns: QUESTION_REWRITE_MAX_TURNS,
+      outputFormat: { type: "json_schema", schema: createQuestionRewriteOutputSchema() },
+      tools: [],
+    };
+  }
+
   private async handleElicitation(
     requestId: string,
     request: ElicitationRequest,
@@ -314,7 +409,10 @@ export class ClaudeService {
 
         return {
           sessionId: message.session_id,
-          structuredOutput: message.structured_output,
+          structuredOutput: extractStructuredOutput({
+            structuredOutput: message.structured_output,
+            result: message.result,
+          }),
           durationMilliseconds: message.duration_ms,
           estimatedCostUsd: message.total_cost_usd,
         };

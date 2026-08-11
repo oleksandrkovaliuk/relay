@@ -15,6 +15,17 @@ export const aiJobActivityValidator = v.object({
   at: v.number(),
 });
 
+/**
+ * Activities are grouped into named sets — "Set two · Type the verb" — the way a
+ * paper worksheet is. Consecutive activities sharing a title form one set, so the
+ * grouping travels with the activity and needs no second table.
+ */
+export const questionSetValidator = v.object({
+  title: v.string(),
+  /** The line under the set heading telling the student what to do. */
+  task: v.string(),
+});
+
 const questionFields = {
   order: v.number(),
   type: v.string(),
@@ -25,7 +36,14 @@ const questionFields = {
   points: v.number(),
   difficulty: v.string(),
   explanation: v.string(),
+  set: v.optional(questionSetValidator),
 };
+
+/** The cheat sheet at the top of a worksheet: a term and what it does. */
+export const referenceRuleValidator = v.object({
+  term: v.string(),
+  explanation: v.string(),
+});
 
 export default defineSchema({
   students: defineTable({
@@ -39,7 +57,8 @@ export default defineSchema({
 
   aiJobs: defineTable({
     requestId: v.string(),
-    kind: v.literal("homework_generation"),
+    /** Editing one activity is the same kind of long-running Claude work. */
+    kind: v.union(v.literal("homework_generation"), v.literal("question_rewrite")),
     status: v.union(
       v.literal("pending"),
       v.literal("running"),
@@ -48,8 +67,16 @@ export default defineSchema({
       v.literal("cancelled"),
     ),
     studentId: v.optional(v.id("students")),
+    /** Set for a rewrite: which activity, in which draft. */
+    homeworkDraftId: v.optional(v.id("homeworkDrafts")),
+    questionId: v.optional(v.id("homeworkQuestions")),
     title: v.string(),
     inputSnapshot: v.string(),
+    /**
+     * A finished rewrite waiting for the teacher to apply or discard it, stored as
+     * JSON so the suggestion survives leaving the page.
+     */
+    resultSnapshot: v.optional(v.string()),
     provider: v.literal("claude_code"),
     errorMessage: v.optional(v.string()),
     createdAt: v.number(),
@@ -72,6 +99,7 @@ export default defineSchema({
     summary: v.string(),
     estimatedMinutes: v.number(),
     learningObjectives: v.array(v.string()),
+    referenceRules: v.optional(v.array(referenceRuleValidator)),
     status: v.literal("review_required"),
     createdAt: v.number(),
   }).index("by_aiJobId", ["aiJobId"]),
@@ -88,6 +116,7 @@ export default defineSchema({
     summary: v.string(),
     estimatedMinutes: v.number(),
     learningObjectives: v.array(v.string()),
+    referenceRules: v.optional(v.array(referenceRuleValidator)),
     shareToken: v.string(),
     status: v.union(v.literal("published"), v.literal("closed")),
     publishedAt: v.number(),
@@ -96,6 +125,14 @@ export default defineSchema({
     .index("by_homeworkDraftId", ["homeworkDraftId"])
     .index("by_shareToken", ["shareToken"])
     .index("by_status_and_publishedAt", ["status", "publishedAt"]),
+
+  assignmentStudents: defineTable({
+    assignmentId: v.id("assignments"),
+    studentId: v.id("students"),
+    createdAt: v.number(),
+  })
+    .index("by_assignmentId_and_studentId", ["assignmentId", "studentId"])
+    .index("by_studentId_and_assignmentId", ["studentId", "assignmentId"]),
 
   assignmentQuestions: defineTable({
     assignmentId: v.id("assignments"),

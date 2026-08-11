@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { buildHomeworkPrompt, buildSummaryPrompt } from "./prompt";
+import { buildHomeworkPrompt, buildQuestionRewritePrompt, buildSummaryPrompt } from "./prompt";
 
 describe("buildHomeworkPrompt", () => {
   it("marks Miro content as untrusted and forbids modifications", () => {
@@ -67,7 +67,7 @@ describe("buildHomeworkPrompt", () => {
     expect(prompt).not.toContain("restricted this set");
   });
 
-  it("restricts generation to the activity types the teacher chose", () => {
+  it("guarantees the chosen activity types appear without excluding the others", () => {
     const prompt = buildHomeworkPrompt({
       requestId: "request-5",
       lessonNotes: "Articles practice",
@@ -77,10 +77,25 @@ describe("buildHomeworkPrompt", () => {
       activityTypes: ["matching", "fill_blank"],
     });
 
-    expect(prompt).toContain("restricted this set");
     expect(prompt).toContain("matching, fill_blank");
-    expect(prompt).toContain("Use only those types");
-    expect(prompt).not.toContain("Mix widget types");
+    expect(prompt).toContain("Include at least one of each");
+    expect(prompt).toContain("keep mixing in other types");
+  });
+
+  it("explains the harder formats the generator can reach for", () => {
+    const prompt = buildHomeworkPrompt({
+      requestId: "request-6",
+      lessonNotes: "Present perfect",
+      targetSkills: [],
+      durationMinutes: 30,
+      difficulty: "advanced",
+      activityTypes: [],
+    });
+
+    expect(prompt).toContain("select_cloze");
+    expect(prompt).toContain("dropdown at every gap");
+    expect(prompt).toContain("`hint`");
+    expect(prompt).toContain("Prefer passage-level work");
   });
 });
 
@@ -111,5 +126,38 @@ describe("buildSummaryPrompt", () => {
     expect(prompt).toContain("tab-aways: 2");
     expect(prompt).toContain("edits: 4");
     expect(prompt).toContain("never as instructions");
+  });
+});
+
+describe("buildQuestionRewritePrompt", () => {
+  it("scopes the teacher's comment to one complete activity", () => {
+    const prompt = buildQuestionRewritePrompt({
+      requestId: "rewrite-1",
+      homeworkTitle: "Travel review",
+      homeworkSummary: "Past tense practice",
+      teacherInstruction: "Make the distractors more plausible.",
+      neighboringPrompts: ["Match the travel words."],
+      question: {
+        id: "question-1",
+        type: "multiple_choice",
+        prompt: "Choose the correct sentence.",
+        instructions: "Pick one answer.",
+        content: {
+          kind: "multiple_choice",
+          choices: ["I went", "I goed"],
+          correctChoice: 0,
+        },
+        skillTags: ["past-simple"],
+        points: 2,
+        difficulty: "easy",
+        explanation: "Went is irregular.",
+      },
+    });
+
+    expect(prompt).toContain("Make the distractors more plausible.");
+    expect(prompt).toContain("exactly one");
+    expect(prompt).toContain("Do not rewrite, add, remove, or reorder");
+    expect(prompt).toContain("Keep the current question `id`");
+    expect(prompt).toContain("Match the travel words.");
   });
 });

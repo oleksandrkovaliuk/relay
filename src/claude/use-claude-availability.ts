@@ -19,7 +19,7 @@ export function useClaudeAvailability() {
         isAuthenticated: false,
         executablePath: null,
         version: null,
-        problem: "Open ERM in the desktop app to use Claude.",
+        problem: "Open Relay in the desktop app to use Claude.",
       });
       return;
     }

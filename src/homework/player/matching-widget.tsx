@@ -1,4 +1,4 @@
-import { Check, X } from "lucide-react";
+import { Check, ChevronDown, CornerDownRight, X } from "lucide-react";
 import {
   useEffect,
   useId,
@@ -12,9 +12,26 @@ import { cn } from "@/lib/utils";
 
 /** Green first, then evenly spaced hues so neighbouring pairs never look alike. */
 const MATCH_BASE_HUE = 154;
-const MINIMUM_CONTROL_OFFSET = 24;
+const MINIMUM_CONTROL_OFFSET = 18;
+/** Per-pair stagger of the point where a connector turns. */
+const LANE_STEP = 5;
 const MAXIMUM_CONTROL_OFFSET = 120;
 const CONNECTOR_REVEAL_MILLISECONDS = 240;
+/**
+ * Under this width two columns of prose leave ~200px per side: every card turns
+ * into a narrow tower of three-word lines. What matters is the room the widget
+ * actually has, not the window — the teacher's preview column is as tight as a
+ * phone — so the switch is measured on the container.
+ */
+const COMPACT_CONTAINER_WIDTH = 560;
+
+type MatchingProps = {
+  lefts: string[];
+  rights: string[];
+  assigned: string[];
+  onChange: (rights: string[]) => void;
+  isReadOnly?: boolean;
+};
 
 type Point = { x: number; y: number };
 
@@ -29,19 +46,45 @@ type MatchEndpointStyle = CSSProperties & {
   "--match-text": string;
 };
 
-export function MatchingWidget({
-  lefts,
-  rights,
-  assigned,
-  onChange,
-  isReadOnly,
-}: {
-  lefts: string[];
-  rights: string[];
-  assigned: string[];
-  onChange: (rights: string[]) => void;
-  isReadOnly?: boolean;
-}) {
+export function MatchingWidget(props: MatchingProps) {
+  const { measureRef, isCompact } = useCompactContainer();
+
+  return (
+    <div ref={measureRef}>
+      {isCompact === null ? null : isCompact ? (
+        <MatchingList {...props} />
+      ) : (
+        <MatchingBoard {...props} />
+      )}
+    </div>
+  );
+}
+
+/**
+ * Watches the room the widget has. `null` until the first measurement, so the
+ * board never renders for a frame in a column too narrow for it.
+ */
+function useCompactContainer() {
+  const measureRef = useRef<HTMLDivElement>(null);
+  const [isCompact, setIsCompact] = useState<boolean | null>(null);
+
+  useLayoutEffect(function trackContainerWidth() {
+    const element = measureRef.current;
+    if (!element) return;
+    function measure() {
+      setIsCompact(element!.getBoundingClientRect().width < COMPACT_CONTAINER_WIDTH);
+    }
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
+
+  return { measureRef, isCompact };
+}
+
+/** Two facing columns joined by drawn connectors — the desktop and tablet view. */
+function MatchingBoard({ lefts, rights, assigned, onChange, isReadOnly }: MatchingProps) {
   const [activeLeft, setActiveLeft] = useState<number | null>(null);
   const [activeAnchor, setActiveAnchor] = useState<Point | null>(null);
   const [pointerPosition, setPointerPosition] = useState<Point | null>(null);
@@ -74,6 +117,7 @@ export function MatchingWidget({
               path: createMatchPath(
                 getRightCenter(leftElement.getBoundingClientRect(), container),
                 getLeftCenter(rightElement.getBoundingClientRect(), container),
+                leftIndex,
               ),
             },
           ];
@@ -91,10 +135,24 @@ export function MatchingWidget({
     }
 
     measure();
+    /**
+     * Every endpoint is observed, not just the container. A card that rewraps —
+     * because a webfont finally loaded, or a neighbouring column reflowed —
+     * changes where a connector must land without changing the container's own
+     * size, which is what left connectors ending mid-gutter.
+     */
     const observer = new ResizeObserver(measure);
     if (containerRef.current) observer.observe(containerRef.current);
+    for (const element of leftRefs.current.values()) observer.observe(element);
+    for (const element of rightRefs.current.values()) observer.observe(element);
     window.addEventListener("resize", measure);
+    /** Fonts land after first paint and change every card's height. */
+    let isActive = true;
+    void document.fonts?.ready.then(() => {
+      if (isActive) measure();
+    });
     return () => {
+      isActive = false;
       observer.disconnect();
       window.removeEventListener("resize", measure);
     };
@@ -213,7 +271,7 @@ export function MatchingWidget({
         setActiveLeft(null);
         resetConnectingState();
       }}
-      className="relative grid grid-cols-[minmax(0,1fr)_1.75rem_minmax(0,1fr)] gap-y-2.5 sm:grid-cols-[minmax(0,1fr)_5rem_minmax(0,1fr)]"
+      className="relative grid grid-cols-[minmax(0,1fr)_4rem_minmax(0,1fr)] gap-y-2.5 lg:grid-cols-[minmax(0,1fr)_6rem_minmax(0,1fr)]"
     >
       <svg
         aria-hidden="true"
@@ -222,27 +280,28 @@ export function MatchingWidget({
       >
         {connectors.map((connector) => {
           const isNewConnector = connector.key === newConnectorKey;
-          const strokeDashoffset = isNewConnector && !isNewConnectorRevealed ? 1 : 0;
           return (
-            <g key={connector.key} stroke={getMatchColor(connector.leftIndex, lefts.length)}>
+            <g
+              key={connector.key}
+              stroke={getMatchColor(connector.leftIndex, lefts.length)}
+              /* New connectors fade in. They used to be revealed by animating a
+                 dash offset, which draws the line progressively — and any state
+                 that left the offset short of the end rendered a stub instead of
+                 a connection. */
+              className="match-connector"
+              data-revealing={isNewConnector && !isNewConnectorRevealed ? "true" : undefined}
+            >
               <path
-                className="match-path match-path-halo"
+                className="match-path-halo"
                 d={connector.path}
                 fill="none"
-                pathLength={1}
-                strokeDasharray="1 1"
-                strokeDashoffset={strokeDashoffset}
                 strokeLinecap="round"
-                strokeWidth={8}
+                strokeWidth={6}
                 vectorEffect="non-scaling-stroke"
               />
               <path
-                className="match-path"
                 d={connector.path}
                 fill="none"
-                pathLength={1}
-                strokeDasharray="1 1"
-                strokeDashoffset={strokeDashoffset}
                 strokeLinecap="round"
                 strokeWidth={2}
                 vectorEffect="non-scaling-stroke"
@@ -320,7 +379,7 @@ export function MatchingWidget({
                   type="button"
                   aria-label={`Clear match between ${left} and ${match}`}
                   onClick={() => clear(index)}
-                  className="match-press mr-1.5 grid w-8 shrink-0 place-items-center self-center rounded-lg text-current/60 opacity-0 transition-opacity duration-150 hover:bg-current/10 hover:text-current focus-visible:opacity-100 group-hover/endpoint:opacity-100 motion-reduce:transition-none"
+                  className="match-press mr-1.5 grid w-8 shrink-0 place-items-center self-center rounded-lg text-current opacity-0 transition-opacity duration-150 hover:bg-current/10 focus-visible:opacity-100 group-hover/endpoint:opacity-100 motion-reduce:transition-none"
                 >
                   <X size={13} aria-hidden />
                 </button>
@@ -400,13 +459,163 @@ export function MatchingWidget({
   );
 }
 
-function MatchDot({ isTinted }: { isTinted: boolean }) {
+/**
+ * The phone view: one card per prompt, each opening the list of possible matches
+ * underneath it. No connectors to draw, so nothing overlaps and every tap target
+ * is full width.
+ */
+function MatchingList({ lefts, rights, assigned, onChange, isReadOnly }: MatchingProps) {
+  const [openIndex, setOpenIndex] = useState<number | null>(null);
+  const instructionsId = useId();
+
+  function choose(leftIndex: number, right: string) {
+    onChange(
+      assigned.map((current, index) => {
+        if (index === leftIndex) return right;
+        // A right belongs to one prompt, so choosing it moves it here.
+        return current === right ? "" : current;
+      }),
+    );
+    setOpenIndex(null);
+  }
+
+  function clear(leftIndex: number) {
+    onChange(assigned.map((current, index) => (index === leftIndex ? "" : current)));
+  }
+
+  return (
+    <div
+      role="group"
+      aria-label="Match the pairs"
+      aria-describedby={isReadOnly ? undefined : instructionsId}
+      className="grid gap-2.5"
+    >
+      {lefts.map((left, index) => {
+        const match = assigned[index] ?? "";
+        const isOpen = openIndex === index;
+        // The first card carries its pair colour from the start so the
+        // tap-to-choose interaction reads before anything is answered.
+        const isTinted = Boolean(match) || isOpen || (!isReadOnly && index === 0);
+        return (
+          <div
+            key={left}
+            style={isTinted ? getMatchEndpointStyle(index, lefts.length) : undefined}
+            className={cn(
+              "match-endpoint overflow-hidden rounded-xl border",
+              isTinted
+                ? "border-(--match-color) bg-[color-mix(in_oklab,var(--match-color)_10%,var(--card))] text-(--match-text)"
+                : "border-border bg-card text-ink",
+              isOpen && "shadow-[0_0_0_3px_color-mix(in_oklab,var(--match-color)_20%,transparent)]",
+            )}
+          >
+            <div className="flex items-stretch">
+              <button
+                type="button"
+                disabled={isReadOnly}
+                aria-expanded={isReadOnly ? undefined : isOpen}
+                aria-label={
+                  match
+                    ? `${left}, matched with ${match}. Select to change.`
+                    : `${left}. Select to choose a match.`
+                }
+                onClick={() => setOpenIndex(isOpen ? null : index)}
+                className="match-press flex min-w-0 flex-1 flex-col gap-1.5 px-3.5 py-3 text-left disabled:cursor-default"
+              >
+                <span className="flex items-start gap-2.5 text-sm font-medium leading-snug">
+                  <MatchDot isTinted={isTinted} className="mt-1.5" />
+                  <span className="min-w-0 flex-1">{left}</span>
+                  {isReadOnly ? null : (
+                    <ChevronDown
+                      size={15}
+                      aria-hidden
+                      className={cn(
+                        "mt-0.5 shrink-0 transition-transform duration-150 motion-reduce:transition-none",
+                        isOpen && "rotate-180",
+                      )}
+                    />
+                  )}
+                </span>
+                <span
+                  className={cn(
+                    "flex items-start gap-1.5 pl-5 text-[13px] leading-5",
+                    match ? "font-medium" : "text-ink-muted",
+                  )}
+                >
+                  {match ? (
+                    <CornerDownRight size={13} className="mt-0.5 shrink-0" aria-hidden />
+                  ) : null}
+                  <span className="min-w-0 flex-1">
+                    {match || (isReadOnly ? "No answer" : "Tap to choose the match")}
+                  </span>
+                </span>
+              </button>
+              {match && !isReadOnly ? (
+                <button
+                  type="button"
+                  aria-label={`Clear match between ${left} and ${match}`}
+                  onClick={() => clear(index)}
+                  className="match-press grid w-11 shrink-0 place-items-center self-stretch border-l border-current/15 text-current hover:bg-current/8"
+                >
+                  <X size={14} aria-hidden />
+                </button>
+              ) : (
+                match && <Check size={14} className="mr-3.5 shrink-0 self-center" aria-hidden />
+              )}
+            </div>
+
+            {isOpen ? (
+              <ul className="grid gap-1.5 border-t border-current/15 bg-card/55 p-2">
+                {rights.map((right) => {
+                  const takenBy = assigned.indexOf(right);
+                  const isChosen = takenBy === index;
+                  const isTakenElsewhere = takenBy >= 0 && takenBy !== index;
+                  return (
+                    <li key={right}>
+                      <button
+                        type="button"
+                        aria-pressed={isChosen}
+                        onClick={() => choose(index, right)}
+                        className={cn(
+                          "match-press flex w-full items-start gap-2.5 rounded-lg border px-3 py-2.5 text-left text-[13.5px] leading-5",
+                          isChosen
+                            ? "border-(--match-color) bg-[color-mix(in_oklab,var(--match-color)_16%,var(--card))] font-medium text-(--match-text)"
+                            : "border-border bg-card text-ink",
+                          isTakenElsewhere && "opacity-55",
+                        )}
+                      >
+                        <span className="min-w-0 flex-1">{right}</span>
+                        {isChosen ? (
+                          <Check size={14} className="mt-0.5 shrink-0" aria-hidden />
+                        ) : isTakenElsewhere ? (
+                          <span className="mt-px shrink-0 text-[11px] text-ink-muted">in use</span>
+                        ) : null}
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+            ) : null}
+          </div>
+        );
+      })}
+
+      {!isReadOnly ? (
+        <p id={instructionsId} className="mt-1 text-[13px] leading-5 text-ink-secondary">
+          Tap a sentence, then pick the rule that matches it.
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+function MatchDot({ isTinted, className }: { isTinted: boolean; className?: string }) {
   return (
     <span
       aria-hidden
       className={cn(
-        "size-2.5 shrink-0 rounded-full transition-colors duration-150",
+        "block size-2.5 shrink-0 rounded-full transition-colors duration-150",
         isTinted ? "bg-(--match-color)" : "bg-foreground/15",
+        className,
       )}
     />
   );
@@ -431,11 +640,16 @@ function getLeftCenter(element: DOMRect, container: DOMRect): Point {
  * shape a node graph uses. Control points scale with the gap, so a short hop
  * stays gentle and a tall one bends without looping or wobbling.
  */
-export function createMatchPath(from: Point, to: Point) {
+export function createMatchPath(from: Point, to: Point, lane = 0) {
   const horizontalDistance = to.x - from.x;
   const verticalDistance = to.y - from.y;
+  /**
+   * A long horizontal run before the curve keeps two crossing pairs apart: they
+   * meet at one point instead of overlapping down the whole channel. The lane
+   * staggers that point per pair so even three crossings stay readable.
+   */
   const controlOffset = clamp(
-    Math.abs(horizontalDistance) * 0.55 + Math.abs(verticalDistance) * 0.12,
+    Math.abs(horizontalDistance) * 0.42 + Math.abs(verticalDistance) * 0.08 + lane * LANE_STEP,
     MINIMUM_CONTROL_OFFSET,
     MAXIMUM_CONTROL_OFFSET,
   );

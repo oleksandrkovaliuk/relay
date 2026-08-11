@@ -18,20 +18,29 @@ own rather than a UI change:
 
 ## Shipping today
 
-| Type              | Student action                       | Grading            |
-| ----------------- | ------------------------------------ | ------------------ |
-| `multiple_choice` | Pick one of 2–6 options              | Automatic          |
-| `fill_blank`      | Type into `{{n}}` gaps in a sentence | Automatic, variants |
-| `matching`        | Click a prompt, then its match       | Automatic, partial |
-| `short_answer`    | Write a sentence or two              | Teacher            |
-| `rewrite`         | Correct or transform given sentences | Teacher            |
+| Type              | Student action                                        | Grading             |
+| ----------------- | ----------------------------------------------------- | ------------------- |
+| `multiple_choice` | Pick one of 2–6 options                               | Automatic           |
+| `fill_blank`      | Type into `{{n}}` gaps; each gap may show a bracketed source word to reshape | Automatic, variants, per-gap partial |
+| `matching`        | Click a prompt, then its match                        | Automatic, partial  |
+| `select_cloze`    | Read a passage and choose the right form at 3–10 gaps | Automatic, per-gap partial |
+| `short_answer`    | Write a sentence or two                               | Teacher             |
+| `rewrite`         | Correct or transform given sentences                  | Teacher             |
+
+`select_cloze` is the hardest auto-graded type: it forces the student to hold a
+whole text in mind rather than answering one isolated sentence. `fill_blank`'s
+optional `hint` turns recognition into production — the student is given `go` and
+must supply `goes`.
+
+The picker in the builder is *additive*: choosing types guarantees they appear,
+and the generator keeps mixing in others so a set never flattens into one format.
 
 ## Proposed next — ranked
 
 Ranking is by teaching value per unit of build cost for one-to-one English
 tutoring, which is what this app is for.
 
-### 1. `order_words` — sentence builder (recommended first)
+### 1. `order_words` — sentence builder (recommended next)
 
 Drag or click word tiles into the correct order. This is the single most
 requested activity in language apps because it isolates syntax from vocabulary
@@ -99,7 +108,8 @@ A short scripted exchange where the student supplies one turn.
 
 ## Suggested build order
 
-`order_words` → `categorise` → `error_hunt`, then reassess. Those three are all
+`order_words` → `categorise` → `error_hunt`, then reassess.
+(`select_cloze` was the previous entry on this list and now ships.) Those three are all
 auto-graded, share the existing interaction vocabulary, and need no new
 infrastructure. `dialogue_response` can be slotted in at any point as it is
 nearly free. Leave `audio_dictation` until there is a reason to take on storage.

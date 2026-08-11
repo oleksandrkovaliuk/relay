@@ -2,8 +2,9 @@ import { ConvexProvider, ConvexReactClient } from "convex/react";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 
-import { HomeworkPlayer } from "@/homework/player/homework-player";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { RelayLogo } from "@/components/relay-logo";
+import { HomeworkPlayer } from "@/homework/player/homework-player";
 import "@/styles.css";
 import { readShareToken } from "./read-share-token";
 
@@ -30,6 +31,7 @@ function MissingLink() {
   return (
     <div className="min-h-screen bg-plane">
       <div className="mx-auto max-w-2xl px-5 py-16">
+        <RelayLogo markSize={22} className="mb-8" />
         <div className="rounded-card border border-line bg-surface p-8">
           <h1 className="text-[17px] font-semibold">No homework link found.</h1>
           <p className="mt-1.5 text-[13px] leading-relaxed text-ink-secondary">

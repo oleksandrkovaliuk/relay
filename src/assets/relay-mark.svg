@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-labelledby="title desc">
+  <title id="title">Relay logo mark</title>
+  <desc id="desc">Two passing study cards joined by a flowing relay path.</desc>
+  <defs>
+    <mask id="relay-cut">
+      <rect width="256" height="256" fill="white"/>
+      <circle cx="58" cy="55" r="10" fill="black"/>
+      <path d="M176 98h-66c-17 0-23 17-8 25l47 24c16 8 18 24 5 35l-14 12" fill="none" stroke="black" stroke-width="20" stroke-linecap="round" stroke-linejoin="round"/>
+    </mask>
+  </defs>
+  <g fill="#007A56" mask="url(#relay-cut)">
+    <path d="M52 28c-10-3-20 4-23 15L16 108c-3 14 5 27 18 31l88 26c14 4 27-4 30-18l14-64c3-13-5-25-18-29L52 28Z"/>
+    <path d="M105 92h72c14 0 26 8 32 21l28 64c5 13-1 27-14 32l-60 24c-12 5-25 1-33-10l-49-72c-8-12-7-27 2-39 6-7 13-15 22-20Z"/>
+  </g>
+</svg>

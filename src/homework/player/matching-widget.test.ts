@@ -36,8 +36,17 @@ describe("matching connector presentation", () => {
     const shortHop = readFirstControlX(createMatchPath({ x: 0, y: 0 }, { x: 8, y: 0 }));
     const longHop = readFirstControlX(createMatchPath({ x: 0, y: 0 }, { x: 4000, y: 0 }));
 
-    expect(shortHop).toBe(24);
+    expect(shortHop).toBe(18);
     expect(longHop).toBe(120);
+  });
+
+  it("staggers each pair's turn so two crossing connectors stay separable", () => {
+    const from = { x: 0, y: 0 };
+    const to = { x: 200, y: 120 };
+
+    expect(readFirstControlX(createMatchPath(from, to, 2))).toBeGreaterThan(
+      readFirstControlX(createMatchPath(from, to, 0)),
+    );
   });
 
   it("bends backwards connectors away from the source instead of through it", () => {

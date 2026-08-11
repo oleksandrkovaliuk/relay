@@ -103,6 +103,103 @@ describe("assignments", () => {
     ).rejects.toThrow(/already published/i);
   });
 
+  test("assigns one homework to multiple students and links a named submission", async () => {
+    const backend = createBackend();
+    const { homeworkDraftId } = await createUnpublishedDraft(backend);
+    const studentIds = await Promise.all(
+      ["Mira Petrova", "Jon Bell"].map((name) =>
+        backend.mutation(api.students.create, { name, contextNotes: "" }),
+      ),
+    );
+    const shareToken = "group-homework-token-000000";
+
+    const published = await backend.mutation(api.assignments.publish, {
+      homeworkDraftId,
+      shareToken,
+      studentIds,
+    });
+    const assignments = await backend.query(api.assignments.listPublished);
+    expect(assignments[0]?.assignedStudents.map((student) => student.name)).toEqual([
+      "Mira Petrova",
+      "Jon Bell",
+    ]);
+    expect((await backend.query(api.assignments.getPublic, { shareToken }))?.studentName).toBeNull();
+
+    const started = await backend.mutation(api.submissions.start, {
+      shareToken,
+      resumeToken: "group-resume-token-0000000",
+      studentName: "jon bell",
+    });
+    const submission = await backend.run(async (ctx) => ctx.db.get("submissions", started.submissionId));
+    expect(published.assignmentId).toBeDefined();
+    expect(submission).toMatchObject({ studentId: studentIds[1], studentName: "Jon Bell" });
+  });
+
+  test("replaces only the selected activity in both draft and published homework", async () => {
+    const backend = createBackend();
+    const shareToken = "rewrite-one-task-token-00000";
+    await seedPublished(backend, shareToken);
+    const assignment = await backend.run(async (ctx) =>
+      ctx.db
+        .query("assignments")
+        .withIndex("by_shareToken", (index) => index.eq("shareToken", shareToken))
+        .unique(),
+    );
+    if (!assignment) throw new Error("expected a published assignment");
+    const draft = await backend.query(api.assignments.getDraft, {
+      homeworkDraftId: assignment.homeworkDraftId,
+    });
+    if (!draft) throw new Error("expected a homework draft");
+    const selectedQuestion = draft.questions.find(
+      (question) => question.content.kind === "multiple_choice",
+    );
+    if (!selectedQuestion || selectedQuestion.content.kind !== "multiple_choice") {
+      throw new Error("expected a multiple choice activity");
+    }
+    const untouchedPrompts = draft.questions
+      .filter((question) => question._id !== selectedQuestion._id)
+      .map((question) => question.prompt);
+
+    await backend.mutation(api.assignments.replaceQuestion, {
+      questionId: selectedQuestion._id,
+      question: {
+        type: "multiple_choice",
+        prompt: "Choose the only natural past-perfect sentence.",
+        instructions: "Compare all three plausible forms.",
+        content: {
+          kind: "multiple_choice",
+          choices: ["had already left", "already left", "has already left"],
+          correctChoice: 0,
+        },
+        skillTags: ["past-perfect"],
+        points: 4,
+        difficulty: "hard",
+        explanation: "The earlier past event takes the past perfect.",
+      },
+    });
+
+    const revisedDraft = await backend.query(api.assignments.getDraft, {
+      homeworkDraftId: assignment.homeworkDraftId,
+    });
+    const revisedPublic = await backend.query(api.assignments.getPublic, { shareToken });
+    expect(revisedDraft?.questions.find((question) => question._id === selectedQuestion._id)).toMatchObject({
+      prompt: "Choose the only natural past-perfect sentence.",
+      points: 4,
+      difficulty: "hard",
+      content: { choices: ["had already left", "already left", "has already left"] },
+    });
+    expect(
+      revisedDraft?.questions
+        .filter((question) => question._id !== selectedQuestion._id)
+        .map((question) => question.prompt),
+    ).toEqual(untouchedPrompts);
+    expect(revisedPublic?.questions.find((question) => question.order === selectedQuestion.order)).toMatchObject({
+      prompt: "Choose the only natural past-perfect sentence.",
+      points: 4,
+      content: { choices: ["had already left", "already left", "has already left"] },
+    });
+  });
+
   test("discards an unpublished draft and preserves its AI job audit record", async () => {
     const backend = createBackend();
     const { aiJobId, homeworkDraftId } = await createUnpublishedDraft(backend);
@@ -491,19 +588,188 @@ describe("teacher feed", () => {
   });
 });
 
+describe("worksheet format", () => {
+  test("carries sets, cheat sheet, timeline and error_fix from draft to student", async () => {
+    const backend = createBackend();
+    const shareToken = "worksheet-format-token-0000";
+    const { homeworkDraftId } = await createWorksheetDraft(backend);
+    await backend.mutation(api.assignments.publish, { homeworkDraftId, shareToken });
+
+    const assignment = await backend.query(api.assignments.getPublic, { shareToken });
+    expect(assignment?.referenceRules).toEqual([
+      { term: "Past Perfect", explanation: "You step back to something older. I hadn't locked it." },
+    ]);
+    expect(assignment?.questions.map((question) => question.set?.title)).toEqual([
+      "Which way is the story moving?",
+      "Review the diff",
+    ]);
+    // The flagged phrase reaches the student; the accepted answers never do.
+    expect(assignment?.questions[1]?.content).toEqual({
+      kind: "error_fix",
+      before: "Last Tuesday we ",
+      flagged: "had ran",
+      after: " into our old babysitter.",
+    });
+    expect(JSON.stringify(assignment)).not.toContain("acceptedAnswers");
+    // The timeline is an answer-side explanation, so it stays out of the task.
+    expect(JSON.stringify(assignment)).not.toContain("you come back");
+  });
+
+  test("marks a corrected phrase however the student punctuates or contracts it", async () => {
+    const backend = createBackend();
+    const shareToken = "error-fix-grading-token-000";
+    const resumeToken = "error-fix-resume-token-0000";
+    const { homeworkDraftId } = await createWorksheetDraft(backend);
+    await backend.mutation(api.assignments.publish, { homeworkDraftId, shareToken });
+    const questions = await loadQuestions(backend, shareToken);
+    const errorFix = questions.find((question) => question.content.kind === "error_fix");
+    if (!errorFix) throw new Error("expected an error_fix activity");
+
+    const started = await backend.mutation(api.submissions.start, {
+      shareToken,
+      resumeToken,
+      studentName: "Mira",
+    });
+    await backend.mutation(api.submissions.saveAnswer, {
+      submissionId: started.submissionId,
+      resumeToken,
+      questionId: errorFix._id,
+      // Capitalised, trailing full stop, and a spelled-out negative.
+      response: { kind: "text", text: "  Did not run. " },
+      stats: NEUTRAL_STATS,
+    });
+    await backend.mutation(api.submissions.submit, {
+      submissionId: started.submissionId,
+      resumeToken,
+    });
+
+    const review = await backend.query(api.submissions.review, {
+      submissionId: started.submissionId,
+      resumeToken,
+    });
+    const item = review?.items.find((entry) => entry.type === "error_fix");
+    expect(item).toMatchObject({ correctness: "correct", pointsAwarded: 3 });
+  });
+
+  test("tells the student what went wrong, gap by gap, and needs their own token", async () => {
+    const backend = createBackend();
+    const shareToken = "review-token-000000000000";
+    const resumeToken = "review-resume-token-000000";
+    await seedPublished(backend, shareToken);
+    const questions = await loadQuestions(backend, shareToken);
+    const fillBlank = questions.find((question) => question.content.kind === "fill_blank");
+    if (fillBlank?.content.kind !== "fill_blank") throw new Error("expected a fill_blank");
+
+    const started = await backend.mutation(api.submissions.start, { shareToken, resumeToken });
+    await backend.mutation(api.submissions.saveAnswer, {
+      submissionId: started.submissionId,
+      resumeToken,
+      questionId: fillBlank._id,
+      response: {
+        kind: "blanks",
+        values: fillBlank.content.hints.map((_hint, index) => (index === 0 ? "the" : "nonsense")),
+      },
+      stats: NEUTRAL_STATS,
+    });
+    await backend.mutation(api.submissions.submit, {
+      submissionId: started.submissionId,
+      resumeToken,
+    });
+
+    const review = await backend.query(api.submissions.review, {
+      submissionId: started.submissionId,
+      resumeToken,
+    });
+    const item = review?.items.find((entry) => entry.questionId === fillBlank._id);
+    expect(item?.explanation.length).toBeGreaterThan(0);
+    expect(item?.parts.length).toBe(fillBlank.content.blankCount);
+    expect(item?.parts.every((part) => part.expected.length > 0)).toBe(true);
+    // Unanswered activities are reported as skipped rather than wrong.
+    expect(review?.items.some((entry) => !entry.answered)).toBe(true);
+
+    await expect(
+      backend.query(api.submissions.review, {
+        submissionId: started.submissionId,
+        resumeToken: "someone-elses-token-000000",
+      }),
+    ).rejects.toThrow(/invalid submission token/i);
+  });
+});
+
+describe("activity edits", () => {
+  test("survives leaving the page: the job holds the suggestion until it is applied", async () => {
+    const backend = createBackend();
+    const { homeworkDraftId } = await createUnpublishedDraft(backend);
+    const draft = await backend.query(api.assignments.getDraft, { homeworkDraftId });
+    const questionId = draft?.questions[0]?._id;
+    if (!questionId) throw new Error("expected a draft question");
+
+    const aiJobId = await backend.mutation(api.aiJobs.createQuestionRewrite, {
+      requestId: "rewrite-request-1",
+      homeworkDraftId,
+      questionId,
+      title: "Make the distractors subtler",
+      inputSnapshot: "{}",
+    });
+    await backend.mutation(api.aiJobs.markRunning, { aiJobId });
+
+    // Mid-flight: any screen can see the edit and what it is doing.
+    let rewrites = await backend.query(api.aiJobs.listRewrites, { homeworkDraftId });
+    expect(rewrites).toMatchObject([{ questionId, status: "running", resultSnapshot: null }]);
+    expect(
+      (await backend.query(api.aiJobs.listActive, {})).map((job) => job.kind),
+    ).toContain("question_rewrite");
+
+    await backend.mutation(api.aiJobs.completeQuestionRewrite, {
+      aiJobId,
+      resultSnapshot: JSON.stringify({ prompt: "Revised prompt" }),
+    });
+
+    // Finished but not yet applied: the suggestion is still there to review.
+    rewrites = await backend.query(api.aiJobs.listRewrites, { homeworkDraftId });
+    expect(rewrites[0]).toMatchObject({ status: "completed" });
+    expect(JSON.parse(rewrites[0]?.resultSnapshot ?? "{}")).toEqual({ prompt: "Revised prompt" });
+
+    await backend.mutation(api.aiJobs.dismissJob, { aiJobId });
+    expect(await backend.query(api.aiJobs.listRewrites, { homeworkDraftId })).toEqual([]);
+  });
+
+  test("a second edit of the same activity replaces the first", async () => {
+    const backend = createBackend();
+    const { homeworkDraftId } = await createUnpublishedDraft(backend);
+    const draft = await backend.query(api.assignments.getDraft, { homeworkDraftId });
+    const questionId = draft?.questions[0]?._id;
+    if (!questionId) throw new Error("expected a draft question");
+
+    for (const requestId of ["rewrite-a", "rewrite-b"]) {
+      await backend.mutation(api.aiJobs.createQuestionRewrite, {
+        requestId,
+        homeworkDraftId,
+        questionId,
+        title: requestId,
+        inputSnapshot: "{}",
+      });
+    }
+
+    const rewrites = await backend.query(api.aiJobs.listRewrites, { homeworkDraftId });
+    expect(rewrites).toHaveLength(1);
+    expect(rewrites[0]?.requestId).toBe("rewrite-b");
+  });
+});
+
 describe("insights", () => {
   test("reports skill accuracy and per-question cost", async () => {
     const backend = createBackend();
     await submitOneAnswer(backend, "insight-token-00000000000");
 
-    const skills = await backend.query(api.dashboard.skillMastery);
+    const skills = await backend.query(api.dashboard.skillMastery, {});
     expect(skills).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ skill: "past-perfect", accuracy: 0, attempts: 1 }),
       ]),
     );
 
-    const questions = await backend.query(api.dashboard.questionInsights);
+    const questions = await backend.query(api.dashboard.questionInsights, {});
     expect(questions[0]).toMatchObject({
       accuracy: 0,
       averageSeconds: 95,
@@ -512,7 +778,7 @@ describe("insights", () => {
     });
     expect(questions[0]).not.toHaveProperty("lookupRate");
 
-    const overview = await backend.query(api.dashboard.overview);
+    const overview = await backend.query(api.dashboard.overview, {});
     expect(overview).toMatchObject({ submittedCount: 1, completionRate: 100 });
   });
 
@@ -533,7 +799,7 @@ describe("insights", () => {
       await ctx.db.patch("students", outperforming.studentId, { name: "Outperforming" });
     });
 
-    const skills = await backend.query(api.dashboard.skillMastery);
+    const skills = await backend.query(api.dashboard.skillMastery, {});
     const pastPerfect = skills.find((skill) => skill.skill === "past-perfect");
 
     expect(pastPerfect).toMatchObject({ accuracy: 50, attempts: 2 });
@@ -560,7 +826,7 @@ describe("insights", () => {
       "balanced-skill-token-0000000",
     );
 
-    const skills = await backend.query(api.dashboard.skillMastery);
+    const skills = await backend.query(api.dashboard.skillMastery, {});
     const pastPerfect = skills.find((skill) => skill.skill === "past-perfect");
 
     expect(pastPerfect?.students).toHaveLength(6);
@@ -575,6 +841,81 @@ describe("insights", () => {
     expect(pastPerfect?.students.map((student) => student.accuracy)).toEqual([
       100, 86, 71, 0, 14, 29,
     ]);
+  });
+
+  test("scopes every insight to the filtered student and date range", async () => {
+    const backend = createBackend();
+    const included = await submitMultipleChoiceAnswer(backend, "filter-in-token-0000000000", 2);
+    const excluded = await submitMultipleChoiceAnswer(backend, "filter-out-token-000000000", 0);
+
+    const forIncludedStudent = { filter: { studentId: included.studentId } };
+    const skills = await backend.query(api.dashboard.skillMastery, forIncludedStudent);
+    expect([
+      ...new Set(skills.flatMap((skill) => skill.students.map((student) => student.studentId))),
+    ]).toEqual([included.studentId]);
+
+    const students = await backend.query(api.dashboard.studentPressure, forIncludedStudent);
+    expect(students.map((student) => student.studentId)).toEqual([included.studentId]);
+
+    const overview = await backend.query(api.dashboard.overview, forIncludedStudent);
+    expect(overview).toMatchObject({ submittedCount: 1, activeStudents: 1 });
+
+    // A window that ended before either submission started sees no work at all.
+    const earliestStartedAt = await backend.run(async (ctx) => {
+      const submissions = await ctx.db.query("submissions").take(10);
+      return Math.min(...submissions.map((submission) => submission.startedAt));
+    });
+    expect(excluded.submissionId).toBeDefined();
+    const beforeEverything = { filter: { to: earliestStartedAt - 1 } };
+    expect(await backend.query(api.dashboard.skillMastery, beforeEverything)).toEqual([]);
+    expect(await backend.query(api.dashboard.questionInsights, beforeEverything)).toEqual([]);
+    expect(await backend.query(api.dashboard.overview, beforeEverything)).toMatchObject({
+      submittedCount: 0,
+      completionRate: 0,
+    });
+  });
+
+  test("names the skill worth another pass and the written answers waiting", async () => {
+    const backend = createBackend();
+    const first = await submitMultipleChoiceAnswer(backend, "highlight-one-token-0000000", 2);
+    // A second wrong attempt at the same skill: one answer is not yet a pattern.
+    await submitMultipleChoiceAnswer(backend, "highlight-two-token-0000000", 2);
+    await backend.run(async (ctx) => {
+      await ctx.db.patch("students", first.studentId, { name: "Mira Petrova" });
+      await ctx.db.patch("submissions", first.submissionId, { pendingReviewCount: 2 });
+    });
+
+    const findings = await backend.query(api.dashboard.highlights, { now: Date.now() });
+
+    // Attention first: the ungraded backlog outranks the skill diagnosis, and
+    // the neutral hesitation note comes last.
+    expect(findings.map((finding) => finding.kind)).toEqual([
+      "pending_review",
+      "skill_gap",
+      "hesitation",
+    ]);
+    expect(findings[0]).toMatchObject({
+      tone: "attention",
+      value: "2",
+      submissionId: first.submissionId,
+      title: "2 written answers waiting on you",
+    });
+    expect(findings[0]?.detail).toContain("Mira Petrova");
+    expect(findings[1]).toMatchObject({ tone: "attention", value: "0%" });
+    expect(findings[1]?.title).toMatch(/needs another pass/);
+    expect(findings[1]?.detail).toContain("2 graded answers");
+  });
+
+  test("finds nothing to report when the filtered range holds no work", async () => {
+    const backend = createBackend();
+    await submitOneAnswer(backend, "quiet-highlight-token-00000");
+
+    const findings = await backend.query(api.dashboard.highlights, {
+      now: Date.now(),
+      filter: { from: Date.now() + 60_000 },
+    });
+
+    expect(findings).toEqual([]);
   });
 });
 
@@ -636,6 +977,75 @@ async function seedSkillMasteryRange(
     }
     return students;
   });
+}
+
+/** A draft in the worksheet format: named sets, a cheat sheet, and a real diff item. */
+async function createWorksheetDraft(backend: ReturnType<typeof createBackend>) {
+  const aiJobId = await backend.mutation(api.aiJobs.createHomeworkGeneration, {
+    requestId: "worksheet-format-job",
+    title: "Step forward, or step back?",
+    inputSnapshot: "{}",
+  });
+  await backend.mutation(api.aiJobs.markRunning, { aiJobId });
+  const homeworkDraftId = await backend.mutation(api.aiJobs.completeHomeworkGeneration, {
+    aiJobId,
+    draft: {
+      title: "Step forward, or step back?",
+      summary: "Past tenses, built from what you wrote last time.",
+      estimatedMinutes: 25,
+      learningObjectives: ["Choose past simple or past perfect"],
+      referenceRules: [
+        {
+          term: "Past Perfect",
+          explanation: "You step back to something older. I hadn't locked it.",
+        },
+      ],
+      questions: [
+        {
+          id: "set-one-1",
+          type: "multiple_choice",
+          prompt: "When I came back an hour later, my bike was gone. I ______ it.",
+          instructions: "Choose one option.",
+          content: {
+            kind: "multiple_choice",
+            choices: ["didn't lock", "hadn't locked"],
+            correctChoice: 1,
+            timeline: ["you don't lock the bike", "you come back and it's gone"],
+          },
+          skillTags: ["past-perfect"],
+          points: 2,
+          difficulty: "medium",
+          explanation: "The not-locking is older than the moment you came back.",
+          set: {
+            title: "Which way is the story moving?",
+            task: "Choose one option. The order strip shows what happened before what.",
+          },
+        },
+        {
+          id: "set-three-1",
+          type: "error_fix",
+          prompt: "One phrase is wrong. Type the fixed version only.",
+          instructions: "Just the phrase, nothing else.",
+          content: {
+            kind: "error_fix",
+            before: "Last Tuesday we ",
+            flagged: "had ran",
+            after: " into our old babysitter.",
+            acceptedAnswers: ["ran", "didn't run"],
+          },
+          skillTags: ["past-simple"],
+          points: 3,
+          difficulty: "hard",
+          explanation: "Nothing older is being explained, and run has no had ran form.",
+          set: {
+            title: "Review the diff",
+            task: "Each line has one flagged phrase. Type the fixed version.",
+          },
+        },
+      ],
+    },
+  });
+  return { aiJobId, homeworkDraftId };
 }
 
 async function createUnpublishedDraft(backend: ReturnType<typeof createBackend>) {

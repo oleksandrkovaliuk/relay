@@ -25,6 +25,7 @@ import {
 } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select";
+import { StudentMultiPicker } from "@/homework/assignment/student-multi-picker";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
@@ -76,9 +77,19 @@ export function HomeworkBuilder({
   const [initialSnapshot] = useState(() =>
     startFresh ? createEmptyBuilderSnapshot() : readBuilderSnapshot(),
   );
-  const [studentId, setStudentId] = useState<Id<"students"> | null>(
-    initialStudentId ?? initialSnapshot.studentId,
+  const [studentIds, setStudentIds] = useState<Id<"students">[]>(
+    initialStudentId
+      ? [initialStudentId]
+      : initialSnapshot.studentId
+        ? [initialSnapshot.studentId]
+        : [],
   );
+  /**
+   * Personal context only applies when the homework is for one learner. With
+   * several assignees the set has to stand on its own, so nobody's errors — or
+   * name — end up written into it.
+   */
+  const studentId = studentIds.length === 1 ? (studentIds[0] ?? null) : null;
   const [lessonNotes, setLessonNotes] = useState(initialSnapshot.lessonNotes);
   const [targetSkills, setTargetSkills] = useState(initialSnapshot.targetSkills);
   const [durationMinutes, setDurationMinutes] = useState(initialSnapshot.durationMinutes);
@@ -123,7 +134,7 @@ export function HomeworkBuilder({
   }, [recordProgress]);
 
   useEffect(function adoptStudentFromCaller() {
-    if (initialStudentId) setStudentId(initialStudentId);
+    if (initialStudentId) setStudentIds([initialStudentId]);
   }, [initialStudentId]);
 
   useEffect(function rememberBriefBetweenVisits() {
@@ -159,6 +170,7 @@ export function HomeworkBuilder({
     return (
       <DraftReview
         homeworkDraftId={draftId}
+        initialStudentIds={studentIds}
         generationActivity={<ClaudeActivityDisclosure activities={claudeActivities} />}
         onDiscarded={() => setDraftId(null)}
         onPublished={() => {
@@ -268,24 +280,14 @@ export function HomeworkBuilder({
 
         <div className="panel divide-y divide-border/70 overflow-hidden">
           <BriefRow
-            title="Student"
-            description="Optional. Selecting a student adds their saved context and recent work."
+            title="Students"
+            description="Optional. One student adds their saved context and recent work; several keeps the set reusable and assigns it to all of them."
           >
-            <NativeSelect
-              aria-label="Student"
-              data-builder-control="student"
-              value={studentId ?? ""}
-              onChange={(event) =>
-                setStudentId((event.target.value || null) as Id<"students"> | null)
-              }
-            >
-              <NativeSelectOption value="">General assignment</NativeSelectOption>
-              {students?.map((candidate) => (
-                <NativeSelectOption key={candidate._id} value={candidate._id}>
-                  {candidate.name}
-                </NativeSelectOption>
-              ))}
-            </NativeSelect>
+            <StudentMultiPicker
+              students={students ?? []}
+              value={studentIds}
+              onValueChange={setStudentIds}
+            />
             {student ? (
               <StudentContextDisclosure
                 key={student._id}
@@ -371,7 +373,10 @@ export function HomeworkBuilder({
             </div>
           </BriefRow>
 
+          {/* The widget cards need the full column width: beside a label they
+              wrap to two words a line. */}
           <BriefRow
+            isStacked
             title="Activity types"
             description="Optional. Pin the homework to specific widgets, or leave blank for a varied mix."
           >
@@ -455,15 +460,24 @@ export function HomeworkBuilder({
 function BriefRow({
   title,
   description,
+  isStacked = false,
   children,
 }: {
   title: string;
   description: string;
+  /** Puts the control under its label instead of beside it, for wide controls. */
+  isStacked?: boolean;
   children: ReactNode;
 }) {
   return (
-    <div className="grid gap-4 px-5 py-5 xl:grid-cols-[minmax(0,15rem)_minmax(0,1fr)] xl:gap-8 xl:px-6">
-      <div className="min-w-0">
+    <div
+      className={cn(
+        "grid gap-4 px-5 py-5 xl:gap-8 xl:px-6",
+        !isStacked && "xl:grid-cols-[minmax(0,15rem)_minmax(0,1fr)]",
+        isStacked && "xl:gap-4",
+      )}
+    >
+      <div className="min-w-0 xl:max-w-[46rem]">
         <FieldTitle>{title}</FieldTitle>
         <p className="mt-1 text-pretty text-[12.5px] leading-5 text-muted-foreground">
           {description}

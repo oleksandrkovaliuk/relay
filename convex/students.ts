@@ -57,6 +57,12 @@ export const list = query({
 
     return Promise.all(
       students.map(async (student) => {
+        const assignmentLinks = await ctx.db
+          .query("assignmentStudents")
+          .withIndex("by_studentId_and_assignmentId", (index) =>
+            index.eq("studentId", student._id),
+          )
+          .take(MAX_STUDENTS);
         const submissions = await ctx.db
           .query("submissions")
           .withIndex("by_studentId_and_startedAt", (q) => q.eq("studentId", student._id))
@@ -77,9 +83,12 @@ export const list = query({
               );
         return {
           ...student,
-          assignmentCount: assignments.filter(
-            (assignment) => assignment.studentId === student._id,
-          ).length,
+          assignmentCount: new Set([
+            ...assignmentLinks.map((link) => link.assignmentId),
+            ...assignments
+              .filter((assignment) => assignment.studentId === student._id)
+              .map((assignment) => assignment._id),
+          ]).size,
           submittedCount: submissions.filter(
             (submission) => submission.status === "submitted",
           ).length,

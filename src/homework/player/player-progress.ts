@@ -1,5 +1,5 @@
 import type { Id } from "@convex/_generated/dataModel";
-import type { AnswerResponse, PlayerQuestion } from "./answer-types";
+import { UNSELECTED_OPTION, type AnswerResponse, type PlayerQuestion } from "./answer-types";
 
 export const PLAYER_STORAGE_VERSION = 1 as const;
 const PLAYER_STORAGE_KEY_PREFIX = "erm:homework-player:v1:";
@@ -135,6 +135,11 @@ function isAnswerResponse(value: unknown): value is AnswerResponse {
       return isStringArray(value.values);
     case "matches":
       return isStringArray(value.rights);
+    case "selections":
+      return (
+        Array.isArray(value.selectedOptions) &&
+        value.selectedOptions.every((option) => Number.isInteger(option))
+      );
     case "text":
       return typeof value.text === "string";
     default:
@@ -183,6 +188,18 @@ function isResponseCompatible(question: PlayerQuestion, response: AnswerResponse
       );
     case "fill_blank":
       return response.kind === "blanks" && response.values.length === question.content.blankCount;
+    case "select_cloze": {
+      const { gaps } = question.content;
+      return (
+        response.kind === "selections" &&
+        response.selectedOptions.length === gaps.length &&
+        response.selectedOptions.every(
+          (option, gapIndex) =>
+            option === UNSELECTED_OPTION ||
+            (option >= 0 && option < (gaps[gapIndex]?.options.length ?? 0)),
+        )
+      );
+    }
     case "matching": {
       const availableRights = question.content.rights;
       return (

@@ -13,7 +13,7 @@ export function getDesktopBridge(): TeacherDesktopApi | null {
 export function requireDesktopBridge() {
   const bridge = getDesktopBridge();
   if (!bridge) {
-    throw new Error("Claude runs in the desktop app. Open ERM in Electron to generate homework.");
+    throw new Error("Claude runs in the desktop app. Open Relay in Electron to generate homework.");
   }
   return bridge;
 }

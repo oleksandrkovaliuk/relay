@@ -56,7 +56,7 @@ export function LessonTimeline({
   }
 
   return (
-    <ol aria-label="Lesson history" className="grid">
+    <ol aria-label="Lesson history" className="grid py-1">
       {history.map((entry) => {
         const isSelected = entry.submissionId === selectedSubmissionId;
         const isSubmitted = entry.status === "submitted";
@@ -75,7 +75,7 @@ export function LessonTimeline({
                     onPointerDown={() => onPrewarm(entry.submissionId)}
                     onFocus={() => onPrewarm(entry.submissionId)}
                     onClick={() => onSelect(entry.submissionId)}
-                    className="group/dash flex h-4 w-full items-center pl-2 pr-1 outline-none"
+                    className="group/dash flex h-3 w-full items-center pl-2 pr-1 outline-none"
                   />
                 }
               >
@@ -84,11 +84,13 @@ export function LessonTimeline({
                   className={cn(
                     "rounded-full transition-[width,height,background-color] duration-150 ease-[var(--ease-out)] motion-reduce:transition-none",
                     "group-focus-visible/dash:ring-2 group-focus-visible/dash:ring-ring group-focus-visible/dash:ring-offset-4 group-focus-visible/dash:ring-offset-background",
+                    /* The current lesson is a capsule; everything else is a
+                       hairline whose width says whether it was finished. */
                     isSelected
-                      ? "h-0.5 w-5 bg-foreground"
+                      ? "h-1.5 w-6 bg-foreground ring-2 ring-background"
                       : isSubmitted
-                        ? "h-px w-3.5 bg-foreground/30 group-hover/dash:w-4 group-hover/dash:bg-foreground/60"
-                        : "h-px w-2 bg-foreground/20 group-hover/dash:w-3 group-hover/dash:bg-foreground/45",
+                        ? "h-px w-3.5 bg-foreground/30 group-hover/dash:w-5 group-hover/dash:bg-foreground/60"
+                        : "h-px w-2 bg-foreground/20 group-hover/dash:w-4 group-hover/dash:bg-foreground/45",
                   )}
                 />
               </HoverCardTrigger>

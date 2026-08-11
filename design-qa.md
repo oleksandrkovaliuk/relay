@@ -247,3 +247,77 @@ The previous dialog and final dialog were opened together in one visual comparis
 No actionable P0, P1, or P2 findings remain in the verified history flow.
 
 final result: passed
+
+## Dynamic Claude island and editor removal — August 11
+
+### Source and implementation evidence
+
+- Removed editor reference: `/var/folders/x7/pxg8xqjd3hs6kyjfslgc_lgm0000gn/T/TemporaryItems/NSIRD_screencaptureui_8xrjGe/Screenshot 2026-08-11 at 5.28.18 PM.png` (`1994 × 1178`).
+- Collapsed implementation: `/Users/sasakovaluk/projects/erm/.design-qa/homework-claude-island-collapsed.png` (`1280 × 720`).
+- Expanded implementation: `/Users/sasakovaluk/projects/erm/.design-qa/homework-claude-island-expanded.png` (`1280 × 720`).
+- Browser viewport: `1280 × 720`; published assignment, activity 1, student-preview mode, task controls scrolled into view.
+
+The supplied editor screenshot and both implementation states were opened together in one comparison input. The comparison specifically checked removal of the Title/Summary/activity form, initial island footprint, answer visibility, expansion behavior, and its relationship to the task footer.
+
+### Visible comparison conclusions
+
+- The full-homework `Edit` action and its Title, Summary, Prompt, Instructions, and Explanation form are removed.
+- The assistant starts as one centered `Ask Claude` pill floating over the task footer divider.
+- Clicking the pill expands it into a single-line composer with only the prompt, close action, and circular send action.
+- The teacher's unfinished instruction survives a close/reopen cycle; changing activities still creates a fresh island for that activity.
+- Every answer remains visible and unobstructed in both collapsed and expanded states.
+
+### Contract and interaction verification
+
+- The Claude runtime now accepts the SDK's structured attachment when present and recovers JSON from the successful result text when the optional attachment is absent.
+- Empty or non-JSON successful results now produce a specific error instead of leaking a Zod `expected object, received undefined` message.
+- Added regression coverage for native structured output, fenced-JSON recovery, and missing-output failure.
+- Verified collapse, expansion, text entry, enabled send state, close, and reopen in the in-app browser.
+- `pnpm check` passed: 89 renderer/unit tests, 28 Convex tests, TypeScript, Electron production build, and web production build.
+- Restarted the desktop development process so the updated main-process IPC code is active.
+
+No actionable P0, P1, or P2 findings remain in the verified state.
+
+final result: passed
+
+## Current handoff state — August 11
+
+The current implementation is the collapsed per-activity Claude island documented above. The full-homework editor remains removed, the desktop process has been restarted with the structured-output recovery fix, and the complete project check passes.
+
+final result: passed
+
+## Floating per-activity Claude composer — August 11
+
+### Source and implementation evidence
+
+- Composer reference: `/var/folders/x7/pxg8xqjd3hs6kyjfslgc_lgm0000gn/T/TemporaryItems/NSIRD_screencaptureui_Drfj0q/Screenshot 2026-08-11 at 5.26.25 PM.png` (`1688 × 354`).
+- Placement reference: `/var/folders/x7/pxg8xqjd3hs6kyjfslgc_lgm0000gn/T/TemporaryItems/NSIRD_screencaptureui_XqhyUW/Screenshot 2026-08-11 at 5.27.20 PM.png` (`1930 × 614`).
+- Full implementation: `/Users/sasakovaluk/projects/erm/.design-qa/homework-floating-chat-full.png` (`1280 × 720`).
+- Focused implementation: `/Users/sasakovaluk/projects/erm/.design-qa/homework-floating-chat-focused.png` (`540 × 720`).
+- Browser viewport: `1280 × 720`, DPR `2`; published assignment, activity 1, student-preview mode, composer scrolled into view.
+
+The composer reference and focused implementation were opened together in one comparison input. The focused comparison covered the rounded white surface, restrained border/shadow, single prompt area, compact lower status row, circular upward send action, and placement directly above the active task navigation.
+
+### Visible comparison conclusions
+
+- The previous form-like Claude editor is now one quiet floating chat surface attached to the active activity.
+- All four answer options remain visible and unobstructed. The composer participates in the wizard layout and floats slightly over the navigation divider instead of covering task content.
+- The idle state contains only the prompt, `Current activity only` scope label, and circular send control. The send control becomes high-contrast when text is present.
+- A generated proposal expands upward from the same surface and keeps `Discard` and `Apply revision` explicit, so no homework-wide mutation occurs without teacher confirmation.
+
+### Interaction verification
+
+- Entered `Make the wrong answers more subtle.` and verified the send action enabled.
+- Switched to the next activity and verified the prompt cleared and the composer remained attached to the new active activity.
+- The browser preview intentionally did not invoke Claude because the desktop bridge is unavailable there; the production Electron IPC path and structured rewrite contract remain covered by the project test suite.
+- `pnpm check` passed: 86 renderer/unit tests, 28 Convex tests, TypeScript, Electron production build, and web production build.
+
+No actionable P0, P1, or P2 findings remain in the verified state.
+
+final result: passed
+
+## Current handoff state — August 11
+
+The current implementation is the collapsed per-activity Claude island documented in the latest pass above. The full-homework editor remains removed, the desktop process has been restarted with the structured-output recovery fix, and `pnpm check` passes with 89 renderer/unit tests plus 28 Convex tests.
+
+final result: passed

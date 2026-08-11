@@ -20,30 +20,6 @@
       "@convex/*": ["./convex/*"]
     }
   },
-  "include": [
-    "src/app/**/*.ts",
-    "src/app/**/*.tsx",
-    "src/claude/**/*.ts",
-    "src/claude/**/*.tsx",
-    "src/components/**/*.ts",
-    "src/components/**/*.tsx",
-    "src/homework/**/*.ts",
-    "src/homework/**/*.tsx",
-    "src/hooks/**/*.ts",
-    "src/insights/**/*.ts",
-    "src/insights/**/*.tsx",
-    "src/lib/**/*.ts",
-    "src/renderer/**/*.ts",
-    "src/renderer/**/*.tsx",
-    "src/shared/**/*.ts",
-    "src/students/**/*.ts",
-    "src/students/**/*.tsx",
-    "src/submissions/**/*.ts",
-    "src/submissions/**/*.tsx",
-    "src/today/**/*.ts",
-    "src/today/**/*.tsx",
-    "src/web/**/*.ts",
-    "src/web/**/*.tsx",
-    "convex/**/*.ts"
-  ]
+  "include": ["src/**/*.ts", "src/**/*.tsx", "convex/**/*.ts"],
+  "exclude": ["src/main/**/*", "src/preload/**/*"]
 }

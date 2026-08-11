@@ -2,6 +2,8 @@ packages: []
 
 allowBuilds:
   electron: true
+  # Windows installer helper; nothing to build for a macOS release.
+  electron-winstaller: false
   esbuild: true
 
 minimumReleaseAgeExclude:
