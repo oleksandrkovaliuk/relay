@@ -1,0 +1,58 @@
+name: release
+
+# Tag a version and every platform builds itself. macOS must be built on macOS —
+# codesigning and notarization only work there — so this is a matrix, not a
+# cross-compile.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-15
+            target: --mac
+          - os: windows-latest
+            target: --win
+          - os: ubuntu-latest
+            target: --linux
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+
+      # Notarization stays off in electron-builder.yml so local builds are fast and
+      # offline; it is switched on here only when the Apple credentials exist.
+      - name: Build and publish
+        run: >
+          pnpm exec electron-builder ${{ matrix.target }} --publish always
+          ${{ matrix.os == 'macos-15' && secrets.APPLE_ID != '' && '--config.mac.notarize=true' || '' }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Baked into the renderer at build time: a release must point at
+          # production, never at a development deployment.
+          VITE_CONVEX_URL: ${{ vars.VITE_CONVEX_URL }}
+          VITE_PLAYER_ORIGIN: ${{ vars.VITE_PLAYER_ORIGIN }}
+          # Signing certificate as base64 (.p12) plus its password. macOS uses a
+          # Developer ID Application certificate; Windows an OV/EV certificate.
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+          # Notarization; without these macOS falls back to ad-hoc signing, which
+          # installs only past a right-click and cannot auto-update.
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}

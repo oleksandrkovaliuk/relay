@@ -1,0 +1,54 @@
+name: main
+
+# The quality gate runs for every push and pull request; only a push to the
+# default branch deploys, so a red check can never reach students.
+on:
+  push:
+    branches: [kovaliukk/init, main]
+  pull_request:
+
+concurrency:
+  group: main-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      # Typecheck, both test suites, and all three builds.
+      - run: pnpm check
+        env:
+          # The renderer needs a Convex URL at build time; the checked build is
+          # never shipped, so the production URL is enough to compile against.
+          VITE_CONVEX_URL: ${{ vars.VITE_CONVEX_URL }}
+
+  deploy:
+    needs: check
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      # Pushes the schema and functions, builds the student player against the
+      # production deployment, and uploads it — one command, one deployment.
+      - run: pnpm deploy:web
+        env:
+          CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
+          VITE_PLAYER_ORIGIN: ${{ vars.VITE_PLAYER_ORIGIN }}
