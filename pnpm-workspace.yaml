@@ -1,0 +1,11 @@
+packages: []
+
+allowBuilds:
+  electron: true
+  esbuild: true
+
+minimumReleaseAgeExclude:
+  - '@tanstack/react-router@1.170.25'
+  - '@tanstack/router-core@1.171.21'
+  - '@tanstack/router-generator@1.167.27'
+  - '@tanstack/router-plugin@1.168.29'
