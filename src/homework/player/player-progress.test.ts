@@ -88,3 +88,34 @@ describe("player progress", () => {
     ).toBeNull();
   });
 });
+
+describe("restoring a typed correction", () => {
+  it("keeps an error_fix answer instead of discarding it", () => {
+    const question = {
+      _id: "q1",
+      order: 0,
+      type: "error_fix",
+      prompt: "Fix the flagged phrase.",
+      instructions: "",
+      content: {
+        kind: "error_fix" as const,
+        before: "Last Tuesday we ",
+        flagged: "had ran",
+        after: " into our old babysitter.",
+      },
+      points: 3,
+      difficulty: "hard",
+    };
+    const progress = {
+      version: PLAYER_STORAGE_VERSION,
+      session: { submissionId: "s1" as never, resumeToken: "r".repeat(20), studentName: "Mira" },
+      index: 0,
+      responses: { q1: { kind: "text" as const, text: "ran" } },
+    };
+
+    expect(restoreQuestionState(progress, [question]).responses.q1).toEqual({
+      kind: "text",
+      text: "ran",
+    });
+  });
+});

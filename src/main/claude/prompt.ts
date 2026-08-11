@@ -13,7 +13,7 @@ const QUESTION_FORMAT_RULES = [
   "- multiple_choice: `choices` plus `correctChoice` as the zero-based index of the right option.",
   "- fill_blank: `text` containing one `{{1}}`, `{{2}}`, … marker per blank in order, and one `blanks` entry per marker listing every acceptable answer (include contractions and common spellings). Set a blank's optional `hint` to the dictionary form the student must reshape — `go` for a gap whose answer is `goes`, `be` for `was`. The player shows the hint in brackets next to the gap, so never write the bracketed word into `text` yourself.",
   "- matching: 3-8 `pairs` of `left` (prompt) and `right` (its match). The player shuffles the right column.",
-  "- select_cloze: a continuous passage in `text` with one `{{1}}`, `{{2}}`, … marker per gap and 3-15 `gaps`, each holding 2-4 `options` and `correctOption`. The student picks from a dropdown at every gap. Options must be genuinely competing forms, not one right answer beside obvious nonsense. Give every gap its own one-line `explanation`; the review shows it beside that gap.",
+  "- select_cloze: a continuous passage in `text` with one `{{1}}`, `{{2}}`, … marker per gap and 3-15 `gaps`, each holding 2-4 `options` and `correctOption`. The student picks from a dropdown at every gap. Options must be genuinely competing forms, not one right answer beside obvious nonsense. Add a one-line `explanation` to the gaps where the reason is not obvious; the review shows it beside that gap.",
   "- error_fix: one sentence split into `before`, the wrong phrase in `flagged`, and `after`. The student retypes only the corrected phrase into `acceptedAnswers`. Use the student's own real mistakes verbatim where the evidence provides them. `flagged` must be exactly the wrong phrase, never the whole sentence.",
   "- open_response: use for `short_answer` and `rewrite`. Add `expectedAnswer` as a model answer for the teacher; it is never auto-graded or shown during the task.",
   "Never put the blank markers, answer letters, or correct answers in `prompt` or `instructions` — students read those fields.",
@@ -40,7 +40,7 @@ const WORKSHEET_STRUCTURE_RULES = [
   "Structure the set the way a good paper worksheet is structured:",
   "- Group the activities into 3-4 named sets using each question's `set` field. Every activity in one set repeats the identical `set.title` (a short imperative like `Type the verb` or `Review the diff`) and the identical `set.task` (one or two sentences telling the student exactly what to do, including what counts as acceptable — contractions, alternative spellings). Sets appear in `order`, never interleaved.",
   "- Give each set one job. A typical shape: recognise the form, produce the form, fix a real mistake, then one connected passage.",
-  "- Add `referenceRules`: 4-6 cheat-sheet entries the student can open while working. `term` is the form (`Past Perfect`), `explanation` is what it does plus one short example. Make the last entry a decision test the student can apply on their own.",
+  "- Add `referenceRules`: 3-5 cheat-sheet entries the student can open while working. `term` is the form (`Past Perfect`), `explanation` is what it does plus one short example. Make the last entry a decision test the student can apply on their own.",
   "- For a multiple_choice question about sequence or tense, add `timeline`: 2-4 beats in the order they really happened, oldest first, phrased in the student's own words (`you don't lock the bike`, then `you come back and it's gone`).",
   "- Write every `explanation` as feedback the student reads after being marked: name why the right answer is right, and where a wrong option is tempting, say what it would have meant instead. Reference the student's own past errors when the evidence shows them. Never write `Correct answer: X` — the answer is already shown next to it.",
 ].join("\n");
@@ -63,6 +63,12 @@ function optionalSection(heading: string, body: string | undefined) {
   const trimmed = body?.trim();
   if (!trimmed) return null;
   return `${heading}\n${trimmed}`;
+}
+
+/** Keeps a 60-minute brief from turning into thirty activities. */
+function describeActivityBudget(durationMinutes: number) {
+  const activityCount = Math.max(3, Math.min(14, Math.round(durationMinutes / 4)));
+  return `${activityCount} activities`;
 }
 
 function describeActivityTypes(input: GenerateHomeworkInput) {
@@ -92,6 +98,7 @@ export function buildHomeworkPrompt(input: GenerateHomeworkInput) {
     optionalSection("Teacher notes for this lesson:", input.lessonNotes),
     targetSkills,
     `Difficulty: ${input.difficulty}. Target completion time: ${input.durationMinutes} minutes.`,
+    `Write about one activity per four minutes of that target — roughly ${describeActivityBudget(input.durationMinutes)}. Fewer, denser activities beat a long list, and every extra one costs the teacher waiting time.`,
     describeActivityTypes(input),
     DIFFICULTY_RULES,
     QUESTION_FORMAT_RULES,

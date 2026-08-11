@@ -5,14 +5,15 @@ const nonEmptyString = z.string().min(1);
 export const questionContentSchema = z.discriminatedUnion("kind", [
   z.object({
     kind: z.literal("multiple_choice"),
-    choices: z.array(nonEmptyString).min(2).max(6),
-    correctChoice: z.number().int().min(0).max(5),
+    choices: z.array(nonEmptyString).min(2).max(8),
+    // An index, so an upper bound here only invents a way to fail.
+    correctChoice: z.number().int().min(0),
     /**
      * What happened before what, oldest first — "you don't lock the bike" then
      * "you come back and it's gone". Shown with the answer so a tense choice
      * becomes a picture instead of a rule.
      */
-    timeline: z.array(nonEmptyString.max(80)).min(2).max(4).optional(),
+    timeline: z.array(nonEmptyString.max(160)).min(1).max(6).optional(),
   }),
   z.object({
     kind: z.literal("fill_blank"),
@@ -20,7 +21,7 @@ export const questionContentSchema = z.discriminatedUnion("kind", [
     blanks: z
       .array(
         z.object({
-          acceptedAnswers: z.array(nonEmptyString).min(1).max(6),
+          acceptedAnswers: z.array(nonEmptyString).min(1).max(12),
           /**
            * The dictionary form the student must reshape, e.g. `go` for `goes`.
            * Shown to the student in brackets next to the gap.
@@ -29,11 +30,11 @@ export const questionContentSchema = z.discriminatedUnion("kind", [
         }),
       )
       .min(1)
-      .max(10),
+      .max(20),
   }),
   z.object({
     kind: z.literal("matching"),
-    pairs: z.array(z.object({ left: nonEmptyString, right: nonEmptyString })).min(3).max(8),
+    pairs: z.array(z.object({ left: nonEmptyString, right: nonEmptyString })).min(2).max(10),
   }),
   z.object({
     kind: z.literal("select_cloze"),
@@ -41,22 +42,22 @@ export const questionContentSchema = z.discriminatedUnion("kind", [
     gaps: z
       .array(
         z.object({
-          options: z.array(nonEmptyString).min(2).max(4),
-          correctOption: z.number().int().min(0).max(3),
+          options: z.array(nonEmptyString).min(2).max(6),
+          correctOption: z.number().int().min(0),
           /** One line on why this gap takes that form, shown per gap. */
-          explanation: nonEmptyString.max(400).optional(),
+          explanation: nonEmptyString.max(1_000).optional(),
         }),
       )
-      .min(3)
-      .max(15),
+      .min(1)
+      .max(20),
   }),
   z.object({
     kind: z.literal("error_fix"),
     /** The sentence, split around the one phrase that is wrong. */
-    before: z.string().max(400),
-    flagged: nonEmptyString.max(120),
-    after: z.string().max(400),
-    acceptedAnswers: z.array(nonEmptyString).min(1).max(6),
+    before: z.string().max(1_000),
+    flagged: nonEmptyString.max(300),
+    after: z.string().max(1_000),
+    acceptedAnswers: z.array(nonEmptyString).min(1).max(12),
   }),
   z.object({
     kind: z.literal("open_response"),
@@ -83,8 +84,8 @@ export const activityTypeSchema = z.enum(ACTIVITY_TYPES);
 
 /** The named set an activity belongs to, e.g. "Set two · Type the verb". */
 export const questionSetSchema = z.object({
-  title: nonEmptyString.max(80),
-  task: nonEmptyString.max(400),
+  title: nonEmptyString.max(160),
+  task: nonEmptyString.max(1_000),
 });
 
 export const homeworkQuestionSchema = z.object({
@@ -93,8 +94,8 @@ export const homeworkQuestionSchema = z.object({
   prompt: nonEmptyString,
   instructions: nonEmptyString,
   content: questionContentSchema,
-  skillTags: z.array(nonEmptyString).min(1).max(4),
-  points: z.number().int().min(1).max(20),
+  skillTags: z.array(nonEmptyString).min(1).max(8),
+  points: z.number().int().min(1).max(50),
   difficulty: z.enum(["easy", "medium", "hard"]),
   /**
    * Why the right answer is right and, where it helps, why the tempting wrong
@@ -107,19 +108,24 @@ export const homeworkQuestionSchema = z.object({
 
 /** One line of the cheat sheet: a form and what it does. */
 export const referenceRuleSchema = z.object({
-  term: nonEmptyString.max(60),
-  explanation: nonEmptyString.max(600),
+  term: nonEmptyString.max(120),
+  explanation: nonEmptyString.max(1_200),
 });
 
 export const homeworkDraftSchema = z.object({
-  /** Topic and focus only: a set may be reassigned, so it carries no name. */
-  title: nonEmptyString.max(70),
-  summary: nonEmptyString.max(600),
+  /**
+   * Topic and focus only: a set may be reassigned, so it carries no name. These
+   * bounds are a safety net, not the style guide — brevity is asked for in the
+   * prompt, because a title three words too long must never throw away an
+   * otherwise good homework set.
+   */
+  title: nonEmptyString.max(300),
+  summary: nonEmptyString.max(4_000),
   estimatedMinutes: z.number().int().min(5).max(180),
-  learningObjectives: z.array(nonEmptyString).min(1).max(6),
+  learningObjectives: z.array(nonEmptyString).min(1).max(12),
   /** The collapsible cheat sheet the student can open while working. */
-  referenceRules: z.array(referenceRuleSchema).max(8).optional(),
-  questions: z.array(homeworkQuestionSchema).min(1).max(24),
+  referenceRules: z.array(referenceRuleSchema).max(12).optional(),
+  questions: z.array(homeworkQuestionSchema).min(1).max(30),
 });
 
 export const generateHomeworkInputSchema = z

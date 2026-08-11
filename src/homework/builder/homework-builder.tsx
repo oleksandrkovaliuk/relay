@@ -6,7 +6,9 @@ import { api } from "@convex/_generated/api";
 import type { Id } from "@convex/_generated/dataModel";
 import {
   appendClaudeActivity,
+  countGeneratedActivities,
   describeClaudeRuntimeEvent,
+  describeDraftProgress,
   type ClaudeActivityEntry,
   type ClaudeActivityUpdate,
 } from "@/claude/claude-activity";
@@ -104,6 +106,8 @@ export function HomeworkBuilder({
   const activitySequence = useRef(0);
   const activityStartedAt = useRef(0);
   const activeJobId = useRef<Id<"aiJobs"> | null>(null);
+  const streamedDraftText = useRef("");
+  const reportedActivityCount = useRef(0);
 
   const student = students?.find((candidate) => candidate._id === studentId) ?? null;
   const history = useQuery(api.students.history, studentId ? { studentId } : "skip");
@@ -162,7 +166,20 @@ export function HomeworkBuilder({
     if (!bridge) return;
     return bridge.onClaudeRuntimeEvent((event) => {
       if (event.requestId !== activeRequestId) return;
-      addClaudeActivity(describeClaudeRuntimeEvent(event));
+      const update = describeClaudeRuntimeEvent(event);
+      if (event.type !== "text_delta") {
+        addClaudeActivity(update);
+        return;
+      }
+      // Most of a generation is one long stream of JSON. Reporting how many
+      // activities have been written turns a frozen row into visible progress —
+      // and only when the count changes, so this stays one update per activity
+      // rather than one per delta.
+      streamedDraftText.current += event.text;
+      const writtenCount = countGeneratedActivities(streamedDraftText.current);
+      if (writtenCount === reportedActivityCount.current) return;
+      reportedActivityCount.current = writtenCount;
+      addClaudeActivity({ ...update, detail: describeDraftProgress(streamedDraftText.current) });
     });
   }, [activeRequestId, addClaudeActivity]);
 
@@ -210,6 +227,8 @@ export function HomeworkBuilder({
 
     activitySequence.current = 0;
     activityStartedAt.current = Date.now();
+    streamedDraftText.current = "";
+    reportedActivityCount.current = 0;
     activeJobId.current = null;
     setClaudeActivities([]);
     setActiveRequestId(requestId);

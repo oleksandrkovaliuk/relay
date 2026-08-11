@@ -71,7 +71,16 @@ export function appendClaudeActivity(
   const latestEntry = currentEntries.at(-1);
   const isRepeatedStreamingUpdate =
     update.kind === "streaming" && latestEntry?.kind === "streaming";
-  if (isRepeatedStreamingUpdate) return currentEntries;
+  if (isRepeatedStreamingUpdate) {
+    // Streaming is one row, not hundreds — but it is replaced rather than
+    // ignored, so its detail can report how much has been written. A row that
+    // never changes for two minutes reads as a hang.
+    if (latestEntry.detail === update.detail) return currentEntries;
+    return [
+      ...currentEntries.slice(0, -1),
+      { ...latestEntry, ...update, elapsedMilliseconds },
+    ];
+  }
 
   const appended = [...currentEntries, { ...update, id, elapsedMilliseconds }];
   return appended.length > MAXIMUM_ACTIVITY_ENTRIES
@@ -83,4 +92,19 @@ function formatToolName(toolName: string) {
   const withoutMiroPrefix = toolName.replace(/^mcp__miro__/, "miro · ");
   const readableName = withoutMiroPrefix.replaceAll("_", " ").replace(/\s+/g, " ").trim();
   return readableName || "external tool";
+}
+
+/**
+ * How far the draft has got, read from the JSON as it streams. Every activity in
+ * the structured output carries exactly one `"prompt"` key, so counting them is a
+ * reliable progress signal without parsing incomplete JSON.
+ */
+export function countGeneratedActivities(streamedText: string) {
+  return streamedText.match(/"prompt"\s*:/g)?.length ?? 0;
+}
+
+export function describeDraftProgress(streamedText: string) {
+  const activityCount = countGeneratedActivities(streamedText);
+  if (activityCount === 0) return "Planning the set";
+  return `${activityCount} ${activityCount === 1 ? "activity" : "activities"} written`;
 }
