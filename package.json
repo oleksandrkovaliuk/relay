@@ -76,8 +76,5 @@
     "vite": "^8.2.1",
     "vitest": "^4.1.10"
   },
-  "author": {
-    "name": "Oleksandr Kovaliuk",
-    "email": "alex.kovaliuk@golaunchlabs.com"
-  }
+  "author": "Oleksandr Kovaliuk"
 }
