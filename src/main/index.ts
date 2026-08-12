@@ -54,7 +54,14 @@ function createWindow() {
   mainWindow.webContents.on("did-fail-load", (_event, errorCode, errorDescription) => {
     console.error(`Renderer failed to load (${errorCode}): ${errorDescription}`);
   });
-  mainWindow.on("ready-to-show", () => mainWindow.show());
+  mainWindow.on("ready-to-show", () => {
+    // electron-vite relaunches the app on every main or preload rebuild, and a
+    // window that shows itself takes focus with it — so a save in the editor
+    // yanked the app in front of whatever you were doing. In development the
+    // window appears without stealing focus; a real launch still comes forward.
+    if (app.isPackaged) mainWindow.show();
+    else mainWindow.showInactive();
+  });
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
     void shell.openExternal(url);
     return { action: "deny" };
