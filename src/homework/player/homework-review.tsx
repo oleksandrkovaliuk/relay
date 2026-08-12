@@ -21,17 +21,16 @@ const VERDICT_LABELS: Record<Verdict, string> = {
   skipped: "left blank",
 };
 
-/** Left edge and verdict colour, the way a marked worksheet is colour-coded. */
-const VERDICT_STYLES: Record<Verdict, { edge: string; text: string; surface: string }> = {
-  correct: { edge: "border-l-primary", text: "text-primary", surface: "bg-primary-soft/35" },
-  partial: { edge: "border-l-amber-500", text: "text-amber-700", surface: "bg-amber-50/60" },
-  incorrect: {
-    edge: "border-l-destructive",
-    text: "text-destructive",
-    surface: "bg-critical-soft/45",
-  },
-  pending: { edge: "border-l-input", text: "text-ink-secondary", surface: "bg-muted/35" },
-  skipped: { edge: "border-l-input", text: "text-ink-muted", surface: "bg-muted/25" },
+/**
+ * A verdict is a word and a left edge — never a filled card. Tinting whole
+ * activities buried the one thing worth spotting: the answer that went wrong.
+ */
+const VERDICT_STYLES: Record<Verdict, { edge: string; text: string }> = {
+  correct: { edge: "border-l-primary/40", text: "text-primary" },
+  partial: { edge: "border-l-destructive/50", text: "text-destructive" },
+  incorrect: { edge: "border-l-destructive", text: "text-destructive" },
+  pending: { edge: "border-l-input", text: "text-ink-secondary" },
+  skipped: { edge: "border-l-input", text: "text-ink-muted" },
 };
 
 /**
@@ -105,14 +104,13 @@ function ReviewRow({ item, step }: { item: ReviewItem; step: number }) {
   const hasDetail =
     Boolean(item.explanation) ||
     item.timeline.length > 0 ||
-    item.parts.some((part) => part.reason);
+    item.parts.some((part) => part.reason && !part.isCorrect);
 
   return (
     <article
       className={cn(
         "overflow-hidden rounded-xl border border-border border-l-[3px] bg-card",
         styles.edge,
-        styles.surface,
       )}
     >
       <div className="flex items-start gap-3 px-4 py-3.5">
@@ -163,10 +161,10 @@ function ReviewRow({ item, step }: { item: ReviewItem; step: number }) {
 
       {hasDetail ? (
         <div className="border-t border-dotted border-border px-4 py-3">
-          {item.parts.some((part) => part.reason) ? (
+          {item.parts.some((part) => part.reason && !part.isCorrect) ? (
             <ul className="mb-2 grid gap-1">
               {item.parts.map((part, index) =>
-                part.reason ? (
+                part.reason && !part.isCorrect ? (
                   <li key={index} className="text-[12.5px] leading-5 text-ink-secondary">
                     <span className="font-mono text-[11px] uppercase tracking-[0.1em] text-ink-muted">
                       {part.label}
@@ -177,11 +175,7 @@ function ReviewRow({ item, step }: { item: ReviewItem; step: number }) {
               )}
             </ul>
           ) : null}
-          {item.explanation ? (
-            <p className="mt-2 text-pretty text-[13.5px] leading-6 text-ink-secondary first:mt-0">
-              {item.explanation}
-            </p>
-          ) : null}
+          {item.explanation ? <ReviewExplanation text={item.explanation} /> : null}
           {item.timeline.length > 0 ? (
             <TimelineStrip beats={item.timeline} isOpen={isOpen} onToggle={setIsOpen} />
           ) : null}
@@ -246,6 +240,41 @@ function TimelineStrip({
             </li>
           ))}
         </ol>
+      ) : null}
+    </div>
+  );
+}
+
+/** Past this, an explanation is a paragraph nobody reads without being asked. */
+const EXPLANATION_CLAMP_LENGTH = 220;
+
+/**
+ * Short by default. Generation now asks for two sentences, but homework written
+ * before that still carries paragraphs, and the point of this line is to be read.
+ */
+function ReviewExplanation({ text }: { text: string }) {
+  const [isExpanded, setIsExpanded] = useState(false);
+  const isLong = text.length > EXPLANATION_CLAMP_LENGTH;
+
+  return (
+    <div className="mt-2 first:mt-0">
+      <p
+        className={cn(
+          "text-pretty text-[13.5px] leading-6 text-ink-secondary",
+          isLong && !isExpanded && "line-clamp-2",
+        )}
+      >
+        {text}
+      </p>
+      {isLong ? (
+        <button
+          type="button"
+          aria-expanded={isExpanded}
+          onClick={() => setIsExpanded((wasExpanded) => !wasExpanded)}
+          className="mt-1 min-h-7 text-[12.5px] font-medium text-ink-muted underline-offset-4 hover:underline"
+        >
+          {isExpanded ? "Less" : "Why?"}
+        </button>
       ) : null}
     </div>
   );

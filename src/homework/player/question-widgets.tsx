@@ -207,8 +207,8 @@ function MultipleChoiceWidget({
               isSelected && !marking
                 ? "border-primary bg-primary-soft font-medium text-primary"
                 : "border-border bg-card text-ink hover:border-input hover:bg-muted/45",
-              isWrongPick && "border-destructive bg-critical-soft font-medium text-destructive",
-              isExpected && "border-primary bg-primary-soft font-medium text-primary",
+              isWrongPick && "border-destructive font-medium text-destructive",
+              isExpected && "border-primary font-medium text-primary",
               isReadOnly && "cursor-default",
             )}
           >
