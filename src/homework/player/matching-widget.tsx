@@ -9,6 +9,7 @@ import {
 } from "react";
 
 import { cn } from "@/lib/utils";
+import type { WidgetMarking } from "./answer-types";
 
 /** Green first, then evenly spaced hues so neighbouring pairs never look alike. */
 const MATCH_BASE_HUE = 154;
@@ -31,6 +32,8 @@ type MatchingProps = {
   assigned: string[];
   onChange: (rights: string[]) => void;
   isReadOnly?: boolean;
+  /** Present only in review: which pairs were right, and what was expected. */
+  marking?: WidgetMarking;
 };
 
 type Point = { x: number; y: number };
@@ -48,10 +51,14 @@ type MatchEndpointStyle = CSSProperties & {
 
 export function MatchingWidget(props: MatchingProps) {
   const { measureRef, isCompact } = useCompactContainer();
+  // A marked answer is always the list: drawn connectors say which pair was made,
+  // never whether it was right, and a wrong pair needs its expected match beside
+  // it to be worth reading.
+  const isList = Boolean(props.marking) || isCompact;
 
   return (
     <div ref={measureRef}>
-      {isCompact === null ? null : isCompact ? (
+      {isCompact === null && !props.marking ? null : isList ? (
         <MatchingList {...props} />
       ) : (
         <MatchingBoard {...props} />
@@ -335,10 +342,7 @@ function MatchingBoard({ lefts, rights, assigned, onChange, isReadOnly }: Matchi
         {lefts.map((left, index) => {
           const isActive = activeLeft === index;
           const match = assigned[index] ?? "";
-          // The first row carries its pair colour from the start so the
-          // click-then-click interaction reads before anything is selected.
-          const isTinted =
-            isActive || Boolean(match) || (!isReadOnly && activeLeft === null && index === 0);
+          const isTinted = isActive || Boolean(match);
           return (
             <div
               key={left}
@@ -381,7 +385,7 @@ function MatchingBoard({ lefts, rights, assigned, onChange, isReadOnly }: Matchi
                   onClick={() => clear(index)}
                   className="match-press mr-1.5 grid w-8 shrink-0 place-items-center self-center rounded-lg text-current opacity-0 transition-opacity duration-150 hover:bg-current/10 focus-visible:opacity-100 group-hover/endpoint:opacity-100 motion-reduce:transition-none"
                 >
-                  <X size={13} aria-hidden />
+                  <X size={12} aria-hidden />
                 </button>
               ) : null}
             </div>
@@ -464,7 +468,7 @@ function MatchingBoard({ lefts, rights, assigned, onChange, isReadOnly }: Matchi
  * underneath it. No connectors to draw, so nothing overlaps and every tap target
  * is full width.
  */
-function MatchingList({ lefts, rights, assigned, onChange, isReadOnly }: MatchingProps) {
+function MatchingList({ lefts, rights, assigned, onChange, isReadOnly, marking }: MatchingProps) {
   const [openIndex, setOpenIndex] = useState<number | null>(null);
   const instructionsId = useId();
 
@@ -495,7 +499,8 @@ function MatchingList({ lefts, rights, assigned, onChange, isReadOnly }: Matchin
         const isOpen = openIndex === index;
         // The first card carries its pair colour from the start so the
         // tap-to-choose interaction reads before anything is answered.
-        const isTinted = Boolean(match) || isOpen || (!isReadOnly && index === 0);
+        const mark = marking?.parts[index];
+        const isTinted = !marking && (Boolean(match) || isOpen);
         return (
           <div
             key={left}
@@ -505,14 +510,16 @@ function MatchingList({ lefts, rights, assigned, onChange, isReadOnly }: Matchin
               isTinted
                 ? "border-(--match-color) bg-[color-mix(in_oklab,var(--match-color)_10%,var(--card))] text-(--match-text)"
                 : "border-border bg-card text-ink",
+              mark?.isCorrect && "border-primary bg-primary-soft/40",
+              mark && !mark.isCorrect && "border-destructive bg-critical-soft/50",
               isOpen && "shadow-[0_0_0_3px_color-mix(in_oklab,var(--match-color)_20%,transparent)]",
             )}
           >
             <div className="flex items-stretch">
               <button
                 type="button"
-                disabled={isReadOnly}
-                aria-expanded={isReadOnly ? undefined : isOpen}
+                disabled={isReadOnly || Boolean(marking)}
+                aria-expanded={isReadOnly || marking ? undefined : isOpen}
                 aria-label={
                   match
                     ? `${left}, matched with ${match}. Select to change.`
@@ -524,7 +531,7 @@ function MatchingList({ lefts, rights, assigned, onChange, isReadOnly }: Matchin
                 <span className="flex items-start gap-2.5 text-sm font-medium leading-snug">
                   <MatchDot isTinted={isTinted} className="mt-1.5" />
                   <span className="min-w-0 flex-1">{left}</span>
-                  {isReadOnly ? null : (
+                  {isReadOnly || marking ? null : (
                     <ChevronDown
                       size={15}
                       aria-hidden
@@ -545,7 +552,12 @@ function MatchingList({ lefts, rights, assigned, onChange, isReadOnly }: Matchin
                     <CornerDownRight size={13} className="mt-0.5 shrink-0" aria-hidden />
                   ) : null}
                   <span className="min-w-0 flex-1">
-                    {match || (isReadOnly ? "No answer" : "Tap to choose the match")}
+                    <span className={cn(mark && !mark.isCorrect && "text-destructive")}>
+                      {match || (isReadOnly ? "No answer" : "Tap to choose the match")}
+                    </span>
+                    {mark && !mark.isCorrect && mark.expected ? (
+                      <span className="mt-0.5 block text-primary">→ {mark.expected}</span>
+                    ) : null}
                   </span>
                 </span>
               </button>
@@ -554,10 +566,13 @@ function MatchingList({ lefts, rights, assigned, onChange, isReadOnly }: Matchin
                   type="button"
                   aria-label={`Clear match between ${left} and ${match}`}
                   onClick={() => clear(index)}
-                  className="match-press grid w-11 shrink-0 place-items-center self-stretch border-l border-current/15 text-current hover:bg-current/8"
+                  className="match-press mr-2 grid size-7 shrink-0 place-items-center self-center rounded-full text-current hover:bg-current/10"
                 >
-                  <X size={14} aria-hidden />
+                  <X size={12} aria-hidden />
                 </button>
+              ) : marking ? (
+                // The verdict is already on the row; a tick here would contradict it.
+                null
               ) : (
                 match && <Check size={14} className="mr-3.5 shrink-0 self-center" aria-hidden />
               )}
@@ -599,7 +614,7 @@ function MatchingList({ lefts, rights, assigned, onChange, isReadOnly }: Matchin
         );
       })}
 
-      {!isReadOnly ? (
+      {!isReadOnly && !marking ? (
         <p id={instructionsId} className="mt-1 text-[13px] leading-5 text-ink-secondary">
           Tap a sentence, then pick the rule that matches it.
         </p>

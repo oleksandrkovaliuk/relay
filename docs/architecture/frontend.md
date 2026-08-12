@@ -119,6 +119,12 @@ They are declared in `tsconfig.json`, `tsconfig.web.json`, `tsconfig.node.json`,
   `past-tenses-nostalgia-practice.html`: named sets, a cheat sheet, an order strip
   behind the answer, and a diff. Every field is optional, so homework generated
   before them still renders.
+- **The review renders the activity, not a transcript.** `QuestionWidget` takes a
+  `marking` prop, so a marked answer is the real widget with the student's own
+  attempt in place: the wrong option, gap, pair or phrase in red, the expected one
+  beside it, and the explanation under it. Matching always falls back to the
+  stacked list when marked — drawn connectors say which pair was made, never
+  whether it was right.
 - **Marking is per part.** `content.gradeResponseParts` returns one verdict per
   blank, gap or pair, so a partly right activity shows which part failed rather
   than one verdict for the whole thing. `normalizeText` forgives case, smart

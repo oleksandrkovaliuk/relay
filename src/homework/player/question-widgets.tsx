@@ -1,4 +1,4 @@
-import { Check, ChevronDown } from "lucide-react";
+import { Check, ChevronDown, X } from "lucide-react";
 import { useLayoutEffect, useRef } from "react";
 
 import { cn } from "@/lib/utils";
@@ -8,6 +8,7 @@ import {
   UNSELECTED_OPTION,
   type AnswerResponse,
   type PublicQuestionContent,
+  type WidgetMarking,
 } from "./answer-types";
 
 const CHOICE_LETTERS = ["A", "B", "C", "D", "E", "F"];
@@ -27,6 +28,8 @@ type WidgetProps = {
   response: AnswerResponse;
   onChange: (response: AnswerResponse) => void;
   isReadOnly?: boolean;
+  /** Present only in review: marks each part of the student's own attempt. */
+  marking?: WidgetMarking;
 };
 
 export function QuestionWidget({
@@ -34,6 +37,7 @@ export function QuestionWidget({
   response,
   onChange,
   isReadOnly,
+  marking,
 }: WidgetProps) {
   if (content.kind === "multiple_choice" && response.kind === "choice") {
     return (
@@ -42,6 +46,7 @@ export function QuestionWidget({
         choiceIndex={response.choiceIndex}
         onSelect={(choiceIndex) => onChange({ kind: "choice", choiceIndex })}
         isReadOnly={isReadOnly}
+        marking={marking}
       />
     );
   }
@@ -53,6 +58,7 @@ export function QuestionWidget({
         values={response.values}
         onChange={(values) => onChange({ kind: "blanks", values })}
         isReadOnly={isReadOnly}
+        marking={marking}
       />
     );
   }
@@ -66,6 +72,7 @@ export function QuestionWidget({
           onChange({ kind: "selections", selectedOptions })
         }
         isReadOnly={isReadOnly}
+        marking={marking}
       />
     );
   }
@@ -77,6 +84,7 @@ export function QuestionWidget({
         assigned={response.rights}
         onChange={(rights) => onChange({ kind: "matches", rights })}
         isReadOnly={isReadOnly}
+        marking={marking}
       />
     );
   }
@@ -89,6 +97,7 @@ export function QuestionWidget({
         text={response.text}
         onChange={(text) => onChange({ kind: "text", text })}
         isReadOnly={isReadOnly}
+        marking={marking}
       />
     );
   }
@@ -115,6 +124,7 @@ function ErrorFixWidget({
   text,
   onChange,
   isReadOnly,
+  marking,
 }: {
   before: string;
   flagged: string;
@@ -122,6 +132,7 @@ function ErrorFixWidget({
   text: string;
   onChange: (text: string) => void;
   isReadOnly?: boolean;
+  marking?: WidgetMarking;
 }) {
   return (
     <div className="grid gap-4">
@@ -144,10 +155,12 @@ function ErrorFixWidget({
           placeholder={ERROR_FIX_PLACEHOLDER}
           onChange={(event) => onChange(event.target.value)}
           className={cn(
-            "h-11 w-full max-w-sm rounded-xl border bg-card px-3 font-mono text-[15px] text-ink outline-none transition-[border-color,box-shadow] duration-150 focus-visible:border-primary focus-visible:ring-3 focus-visible:ring-ring/25",
-            text.trim() ? "border-primary" : "border-border",
+            "h-11 w-full max-w-sm rounded-xl border bg-card px-3 font-mono text-[15px] outline-none transition-[border-color,box-shadow] duration-150 focus-visible:border-primary focus-visible:ring-3 focus-visible:ring-ring/25",
+            markTone(singleMark(marking)) ??
+              (text.trim() ? "border-primary text-ink" : "border-border text-ink"),
           )}
         />
+        <ExpectedInline mark={singleMark(marking)} />
       </label>
     </div>
   );
@@ -167,16 +180,20 @@ function MultipleChoiceWidget({
   choiceIndex,
   onSelect,
   isReadOnly,
+  marking,
 }: {
   choices: string[];
   choiceIndex: number;
   onSelect: (choiceIndex: number) => void;
   isReadOnly?: boolean;
+  marking?: WidgetMarking;
 }) {
   return (
     <div role="radiogroup" className="grid gap-2.5">
       {choices.map((choice, index) => {
         const isSelected = index === choiceIndex;
+        const isExpected = marking ? index === marking.correctChoiceIndex : false;
+        const isWrongPick = Boolean(marking) && isSelected && !isExpected;
         return (
           <button
             key={choice}
@@ -187,21 +204,28 @@ function MultipleChoiceWidget({
             onClick={() => onSelect(index)}
             className={cn(
               "flex min-h-[3.25rem] w-full items-start gap-3.5 rounded-xl border px-3.5 py-3 text-left text-[15px] leading-6 transition-[background-color,border-color,color,transform] duration-[120ms] ease-[var(--ease-out)] active:scale-[.99] motion-reduce:active:scale-100 lg:text-base",
-              isSelected
+              isSelected && !marking
                 ? "border-primary bg-primary-soft font-medium text-primary"
                 : "border-border bg-card text-ink hover:border-input hover:bg-muted/45",
+              isWrongPick && "border-destructive bg-critical-soft font-medium text-destructive",
+              isExpected && "border-primary bg-primary-soft font-medium text-primary",
               isReadOnly && "cursor-default",
             )}
           >
             <span
               className={cn(
                 "mt-0.5 grid size-5 shrink-0 place-items-center rounded-md border text-[11px] font-semibold leading-none",
-                isSelected
+                isWrongPick && "border-destructive bg-destructive text-background",
+                !isWrongPick && (isExpected || (isSelected && !marking))
                   ? "border-primary bg-primary text-primary-foreground"
-                  : "border-input text-ink-secondary",
+                  : isWrongPick
+                    ? ""
+                    : "border-input text-ink-secondary",
               )}
             >
-              {isSelected ? (
+              {isWrongPick ? (
+                <X size={12} strokeWidth={3} aria-hidden />
+              ) : isExpected || (isSelected && !marking) ? (
                 <Check size={12} strokeWidth={3} aria-hidden />
               ) : (
                 (CHOICE_LETTERS[index] ?? String(index + 1))
@@ -221,12 +245,14 @@ function FillBlankWidget({
   values,
   onChange,
   isReadOnly,
+  marking,
 }: {
   text: string;
   hints: (string | null)[];
   values: string[];
   onChange: (values: string[]) => void;
   isReadOnly?: boolean;
+  marking?: WidgetMarking;
 }) {
   const segments = splitBlankText(text);
   const hasMarkers = segments.some((segment) => segment.blankIndex !== null);
@@ -251,10 +277,14 @@ function FillBlankWidget({
               disabled={isReadOnly}
               aria-label={`Blank ${index + 1}`}
               onChange={(event) => updateBlank(index, event.target.value)}
-              className="h-11 min-w-0 flex-1 rounded-xl border border-border bg-card px-3 text-[15px] text-ink outline-none transition-[border-color,box-shadow] duration-150 focus-visible:border-primary focus-visible:ring-3 focus-visible:ring-ring/25 lg:text-base"
+              className={cn(
+                "h-11 min-w-0 flex-1 rounded-xl border bg-card px-3 text-[15px] outline-none transition-[border-color,box-shadow] duration-150 focus-visible:border-primary focus-visible:ring-3 focus-visible:ring-ring/25 lg:text-base",
+                markTone(marking?.parts[index]) ?? "border-border text-ink",
+              )}
               placeholder="Your answer"
             />
             <HintWord hint={hints[index] ?? null} />
+            <ExpectedInline mark={marking?.parts[index]} />
           </div>
         ))}
       </div>
@@ -273,13 +303,36 @@ function FillBlankWidget({
               value={values[segment.blankIndex] ?? ""}
               onChange={(value) => updateBlank(segment.blankIndex ?? 0, value)}
               isReadOnly={isReadOnly}
+              mark={marking?.parts[segment.blankIndex]}
             />
             <HintWord hint={hints[segment.blankIndex] ?? null} />
+            <ExpectedInline mark={marking?.parts[segment.blankIndex]} />
           </span>
         ),
       )}
     </p>
   );
+}
+
+/** What the answer should have been, beside the part that got it wrong. */
+function ExpectedInline({ mark }: { mark?: { isCorrect: boolean; expected: string } }) {
+  if (!mark || mark.isCorrect || !mark.expected) return null;
+  return (
+    <span className="mx-1 whitespace-nowrap font-mono text-[0.86em] text-primary">
+      → {mark.expected}
+    </span>
+  );
+}
+
+/** error_fix and open_response have one answer, so one verdict. */
+function singleMark(marking?: WidgetMarking) {
+  if (!marking) return undefined;
+  return { isCorrect: marking.parts[0]?.isCorrect ?? false, expected: marking.expected ?? "" };
+}
+
+function markTone(mark?: { isCorrect: boolean }) {
+  if (!mark) return null;
+  return mark.isCorrect ? "border-primary text-primary" : "border-destructive text-destructive";
 }
 
 /**
@@ -296,11 +349,13 @@ function BlankInput({
   value,
   onChange,
   isReadOnly,
+  mark,
 }: {
   index: number;
   value: string;
   onChange: (value: string) => void;
   isReadOnly?: boolean;
+  mark?: { isCorrect: boolean; expected: string };
 }) {
   const measuredWidth = Math.min(
     BLANK_MAXIMUM_WIDTH_CH,
@@ -319,9 +374,13 @@ function BlankInput({
       style={{ width: `${measuredWidth}ch` }}
       className={cn(
         "mx-1 rounded-none border-0 border-b-2 bg-transparent px-1 pb-0.5 text-center align-baseline text-[15px] font-medium outline-none transition-colors duration-150 focus-visible:border-primary lg:text-base",
-        value.trim()
-          ? "border-primary text-primary"
-          : "border-input text-ink hover:border-ink-muted",
+        mark
+          ? mark.isCorrect
+            ? "border-primary text-primary"
+            : "border-destructive text-destructive"
+          : value.trim()
+            ? "border-primary text-primary"
+            : "border-input text-ink hover:border-ink-muted",
       )}
     />
   );
@@ -338,12 +397,14 @@ function SelectClozeWidget({
   selectedOptions,
   onChange,
   isReadOnly,
+  marking,
 }: {
   text: string;
   gaps: { options: string[] }[];
   selectedOptions: number[];
   onChange: (selectedOptions: number[]) => void;
   isReadOnly?: boolean;
+  marking?: WidgetMarking;
 }) {
   const segments = splitBlankText(text);
 
@@ -385,9 +446,10 @@ function SelectClozeWidget({
               style={{ width: `${widestLabel + GAP_CHEVRON_WIDTH_CH}ch` }}
               className={cn(
                 "appearance-none rounded-none border-0 border-b-2 bg-transparent bg-none pb-0.5 pl-1 pr-5 text-center align-baseline text-[15px] font-medium outline-none transition-colors duration-150 focus-visible:border-primary disabled:cursor-default lg:text-base",
-                selected >= 0
-                  ? "border-primary text-primary"
-                  : "border-input text-ink-muted hover:border-ink-muted",
+                markTone(marking?.parts[gapIndex]) ??
+                  (selected >= 0
+                    ? "border-primary text-primary"
+                    : "border-input text-ink-muted hover:border-ink-muted"),
               )}
             >
               <option value={UNSELECTED_OPTION} disabled>
@@ -399,14 +461,17 @@ function SelectClozeWidget({
                 </option>
               ))}
             </select>
-            <ChevronDown
-              size={13}
-              aria-hidden
-              className={cn(
-                "pointer-events-none absolute right-1 bottom-[0.35em]",
-                selected >= 0 ? "text-primary" : "text-ink-muted",
-              )}
-            />
+            {marking ? null : (
+              <ChevronDown
+                size={13}
+                aria-hidden
+                className={cn(
+                  "pointer-events-none absolute right-1 bottom-[0.35em]",
+                  selected >= 0 ? "text-primary" : "text-ink-muted",
+                )}
+              />
+            )}
+            <ExpectedInline mark={marking?.parts[gapIndex]} />
           </span>
         );
       })}

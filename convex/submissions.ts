@@ -258,6 +258,8 @@ const reviewItemValidator = v.object({
   /** Absent means the student skipped it entirely. */
   correctness: v.optional(correctnessValidator),
   answered: v.boolean(),
+  /** The student's own answer, so the review can re-render the real activity. */
+  response: v.optional(answerResponseValidator),
   yourAnswer: v.string(),
   correctAnswer: v.union(v.string(), v.null()),
   /** Why the right answer is right, written for the student. */
@@ -341,6 +343,7 @@ export const review = query({
           pointsAwarded: answer?.pointsAwarded ?? 0,
           ...(answer?.correctness ? { correctness: answer.correctness } : {}),
           answered: answer !== undefined,
+          ...(answer ? { response: answer.response } : {}),
           yourAnswer: answer ? describeResponse(answer.response, question.content) : "",
           correctAnswer: describeCorrectAnswer(question.content),
           explanation: question.explanation,

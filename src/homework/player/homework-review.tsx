@@ -1,11 +1,12 @@
 import type { FunctionReturnType } from "convex/server";
-import { ArrowRight, Check, X } from "lucide-react";
+import { ArrowRight } from "lucide-react";
 import { useState, type ReactNode } from "react";
 
 import type { api } from "@convex/_generated/api";
 import { cn } from "@/lib/utils";
-import { groupQuestionsIntoSets, type PublicQuestionContent } from "./answer-types";
+import { groupQuestionsIntoSets, type WidgetMarking } from "./answer-types";
 import { PromptContent } from "./prompt-content";
+import { QuestionWidget } from "./question-widgets";
 import { ReferenceRules } from "./reference-rules";
 
 type ReviewData = NonNullable<FunctionReturnType<typeof api.submissions.review>>;
@@ -101,7 +102,10 @@ function ReviewRow({ item, step }: { item: ReviewItem; step: number }) {
   const verdict = resolveVerdict(item);
   const styles = VERDICT_STYLES[verdict];
   const [isOpen, setIsOpen] = useState(verdict === "incorrect" || verdict === "partial");
-  const hasDetail = Boolean(item.explanation) || item.parts.length > 0 || item.timeline.length > 0;
+  const hasDetail =
+    Boolean(item.explanation) ||
+    item.timeline.length > 0 ||
+    item.parts.some((part) => part.reason);
 
   return (
     <article
@@ -117,23 +121,37 @@ function ReviewRow({ item, step }: { item: ReviewItem; step: number }) {
         </span>
         <div className="min-w-0 flex-1">
           <PromptContent prompt={readableTaskText(item)} size="sm" />
-          <div className="mt-2.5 grid gap-1.5">
-            <AnswerLine
-              label="You wrote"
-              value={item.answered ? item.yourAnswer || "—" : "nothing"}
-              tone={verdict === "incorrect" || verdict === "partial" ? "given" : "neutral"}
-            />
-            {verdict === "correct" || verdict === "pending" ? null : (
-              <AnswerLine label="Expected" value={item.correctAnswer ?? "—"} tone="expected" />
+          {/* The set heading already carries its task line. */}
+          {item.instructions && item.instructions !== item.set?.task ? (
+            <p className="mt-1.5 text-pretty text-[12.5px] leading-5 text-ink-muted">
+              {item.instructions}
+            </p>
+          ) : null}
+          {/* The activity itself, exactly as it was answered, with the wrong
+              parts marked in place. Reading your own attempt inside the task is
+              what makes the mistake obvious; a transcript of it is not. */}
+          <div className="mt-3">
+            {item.answered ? (
+              <QuestionWidget
+                content={item.content}
+                response={item.response ?? { kind: "text", text: "" }}
+                onChange={() => undefined}
+                isReadOnly
+                marking={toWidgetMarking(item)}
+              />
+            ) : (
+              <p className="text-[13px] text-ink-muted">
+                Left blank.{" "}
+                {item.correctAnswer ? (
+                  <span className="font-mono text-primary">{item.correctAnswer}</span>
+                ) : null}
+              </p>
             )}
           </div>
         </div>
         <div className="flex shrink-0 flex-col items-end gap-1">
           <span
-            className={cn(
-              "font-mono text-[10.5px] uppercase tracking-[0.12em]",
-              styles.text,
-            )}
+            className={cn("font-mono text-[10.5px] uppercase tracking-[0.12em]", styles.text)}
           >
             {VERDICT_LABELS[verdict]}
           </span>
@@ -145,7 +163,20 @@ function ReviewRow({ item, step }: { item: ReviewItem; step: number }) {
 
       {hasDetail ? (
         <div className="border-t border-dotted border-border px-4 py-3">
-          {item.parts.length > 0 ? <PartBreakdown parts={item.parts} /> : null}
+          {item.parts.some((part) => part.reason) ? (
+            <ul className="mb-2 grid gap-1">
+              {item.parts.map((part, index) =>
+                part.reason ? (
+                  <li key={index} className="text-[12.5px] leading-5 text-ink-secondary">
+                    <span className="font-mono text-[11px] uppercase tracking-[0.1em] text-ink-muted">
+                      {part.label}
+                    </span>{" "}
+                    {part.reason}
+                  </li>
+                ) : null,
+              )}
+            </ul>
+          ) : null}
           {item.explanation ? (
             <p className="mt-2 text-pretty text-[13.5px] leading-6 text-ink-secondary first:mt-0">
               {item.explanation}
@@ -170,71 +201,6 @@ function readableTaskText(item: ReviewItem) {
       ? `${item.content.before}${item.content.flagged}${item.content.after}`
       : item.prompt;
   return sentence.replaceAll(/\{\{\d+\}\}/g, "____");
-}
-
-function AnswerLine({
-  label,
-  value,
-  tone,
-}: {
-  label: string;
-  value: string;
-  tone: "given" | "expected" | "correct" | "neutral";
-}) {
-  return (
-    <p className="flex flex-wrap items-baseline gap-x-2 text-[13px] leading-5">
-      <span className="font-mono text-[11px] uppercase tracking-[0.1em] text-ink-muted">
-        {label}
-      </span>
-      <span
-        className={cn(
-          "min-w-0 font-mono text-[13.5px]",
-          tone === "given" && "text-destructive",
-          tone === "neutral" && "text-ink",
-          (tone === "correct" || tone === "expected") && "text-primary",
-        )}
-      >
-        {value}
-      </span>
-    </p>
-  );
-}
-
-/** Per-gap marking, so a partly right activity shows which part failed. */
-function PartBreakdown({ parts }: { parts: ReviewItem["parts"] }) {
-  return (
-    <ul className="grid gap-1">
-      {parts.map((part, index) => (
-        <li key={`${part.label}-${index}`} className="flex items-start gap-2 text-[13px] leading-5">
-          <span
-            className={cn(
-              "mt-0.5 shrink-0",
-              part.isCorrect ? "text-primary" : "text-destructive",
-            )}
-          >
-            {part.isCorrect ? <Check size={13} aria-hidden /> : <X size={13} aria-hidden />}
-          </span>
-          <span className="min-w-0 flex-1">
-            <span className="font-mono text-[11px] uppercase tracking-[0.1em] text-ink-muted">
-              {part.label}
-            </span>{" "}
-            <span className="font-mono text-ink">{part.given || "—"}</span>
-            {part.isCorrect ? null : (
-              <>
-                {" → "}
-                <span className="font-mono text-primary">{part.expected}</span>
-              </>
-            )}
-            {part.reason ? (
-              <span className="mt-0.5 block text-[12.5px] leading-5 text-ink-secondary">
-                {part.reason}
-              </span>
-            ) : null}
-          </span>
-        </li>
-      ))}
-    </ul>
-  );
 }
 
 /**
@@ -283,6 +249,28 @@ function TimelineStrip({
       ) : null}
     </div>
   );
+}
+
+/** Turns the server's per-part marking into what each widget needs to show it. */
+function toWidgetMarking(item: ReviewItem): WidgetMarking {
+  const parts = item.parts.map((part) => ({
+    isCorrect: part.isCorrect,
+    expected: part.expected,
+  }));
+  if (item.content.kind === "multiple_choice") {
+    const correctChoiceIndex = item.content.choices.findIndex(
+      (choice) => choice === item.correctAnswer,
+    );
+    return { parts, ...(correctChoiceIndex >= 0 ? { correctChoiceIndex } : {}) };
+  }
+  if (parts.length === 0) {
+    // One typed answer: error_fix and the written tasks.
+    return {
+      parts: [{ isCorrect: item.correctness === "correct", expected: item.correctAnswer ?? "" }],
+      expected: item.correctAnswer,
+    };
+  }
+  return { parts };
 }
 
 export function resolveVerdict(item: ReviewItem): Verdict {
@@ -340,5 +328,3 @@ function describeTotal(percentage: number) {
   return "Open the cheat sheet at the top, then read the red notes one by one.";
 }
 
-/** Renders a widget read-only, for reviewing what was answered. */
-export type ReviewWidgetContent = PublicQuestionContent;

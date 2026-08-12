@@ -149,3 +149,17 @@ export function splitBlankText(text: string): TextSegment[] {
   }
   return segments;
 }
+
+/**
+ * A marked answer, per part, in the same order the widget renders. The review
+ * shows the student's own attempt inside the real activity rather than a text
+ * dump of it, so every widget needs to know which of its parts went wrong and
+ * what was expected there.
+ */
+export type WidgetMarking = {
+  parts: { isCorrect: boolean; expected: string }[];
+  /** Multiple choice: which option was right. */
+  correctChoiceIndex?: number;
+  /** A single typed answer: error_fix and open_response. */
+  expected?: string | null;
+};
