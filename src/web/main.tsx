@@ -1,4 +1,5 @@
 import { ConvexProvider, ConvexReactClient } from "convex/react";
+import { ConvexQueryCacheProvider } from "convex-helpers/react/cache/provider";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 
@@ -20,9 +21,11 @@ const shareToken = readShareToken(window.location);
 createRoot(rootElement).render(
   <StrictMode>
     <ConvexProvider client={convex}>
-      <TooltipProvider delay={350}>
+      <ConvexQueryCacheProvider>
+        <TooltipProvider delay={350}>
         {shareToken ? <HomeworkPlayer shareToken={shareToken} /> : <MissingLink />}
-      </TooltipProvider>
+        </TooltipProvider>
+      </ConvexQueryCacheProvider>
     </ConvexProvider>
   </StrictMode>,
 );

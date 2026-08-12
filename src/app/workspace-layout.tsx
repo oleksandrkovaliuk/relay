@@ -1,5 +1,5 @@
 import { Outlet, useRouterState } from "@tanstack/react-router";
-import { useQuery } from "convex/react";
+import { useQuery } from "convex-helpers/react/cache";
 import { useEffect, useState } from "react";
 
 import { api } from "@convex/_generated/api";
@@ -8,6 +8,7 @@ import {
   useSharedClaudeAvailability,
 } from "@/claude/claude-availability-context";
 import { ClaudeSetupDialog } from "@/claude/claude-setup-dialog";
+import { useAutomaticSummaries } from "@/claude/use-automatic-summaries";
 import { useClaudeConnections } from "@/claude/use-claude-connections";
 import { rememberLastRoute } from "@/lib/last-route";
 import { WorkspaceShell } from "./workspace-shell";
@@ -30,6 +31,9 @@ function WorkspaceChrome() {
   const { availability, refresh } = useSharedClaudeAvailability();
   const [claudeSetup, setClaudeSetup] = useState(readClaudeSetupState);
   const { activeConnection } = useClaudeConnections();
+  // Summaries are generated the moment work arrives, so the teacher never waits
+  // for one they are already looking at.
+  useAutomaticSummaries({ isClaudeReady: availability?.isAuthenticated ?? false });
   const awaitingSummary = useQuery(api.feed.awaitingSummary);
   const drafts = useQuery(api.assignments.listDrafts);
   const pathname = useRouterState({ select: (state) => state.location.pathname });

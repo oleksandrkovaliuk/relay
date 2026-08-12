@@ -1,4 +1,5 @@
-import { useMutation, useQuery } from "convex/react";
+import { useMutation } from "convex/react";
+import { useQuery } from "convex-helpers/react/cache";
 import { ArrowRight, ExternalLink } from "lucide-react";
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 
@@ -41,7 +42,7 @@ import { BuilderPreview } from "./builder-preview";
 type Difficulty = "beginner" | "intermediate" | "advanced";
 
 type BuilderBriefSnapshot = {
-  studentId: Id<"students"> | null;
+  studentIds: Id<"students">[];
   lessonNotes: string;
   targetSkills: string;
   durationMinutes: number;
@@ -80,11 +81,7 @@ export function HomeworkBuilder({
     startFresh ? createEmptyBuilderSnapshot() : readBuilderSnapshot(),
   );
   const [studentIds, setStudentIds] = useState<Id<"students">[]>(
-    initialStudentId
-      ? [initialStudentId]
-      : initialSnapshot.studentId
-        ? [initialSnapshot.studentId]
-        : [],
+    initialStudentId ? [initialStudentId] : initialSnapshot.studentIds,
   );
   /**
    * Personal context only applies when the homework is for one learner. With
@@ -143,7 +140,7 @@ export function HomeworkBuilder({
 
   useEffect(function rememberBriefBetweenVisits() {
     writeBuilderSnapshot({
-      studentId,
+      studentIds,
       lessonNotes,
       targetSkills,
       durationMinutes,
@@ -156,7 +153,7 @@ export function HomeworkBuilder({
     difficulty,
     durationMinutes,
     lessonNotes,
-    studentId,
+    studentIds,
     targetSkills,
     useMiroBoard,
   ]);
@@ -610,7 +607,7 @@ function readBuilderSnapshot(): BuilderBriefSnapshot {
   const fallback = createEmptyBuilderSnapshot();
 
   try {
-    const serialized = window.sessionStorage.getItem(BUILDER_STORAGE_KEY);
+    const serialized = window.localStorage.getItem(BUILDER_STORAGE_KEY);
     if (!serialized) return fallback;
     const parsed: unknown = JSON.parse(serialized);
     if (!isBuilderSnapshot(parsed)) return fallback;
@@ -622,7 +619,7 @@ function readBuilderSnapshot(): BuilderBriefSnapshot {
 
 function createEmptyBuilderSnapshot(): BuilderBriefSnapshot {
   return {
-    studentId: null,
+    studentIds: [],
     lessonNotes: "",
     targetSkills: "",
     durationMinutes: DEFAULT_DURATION_MINUTES,
@@ -634,7 +631,7 @@ function createEmptyBuilderSnapshot(): BuilderBriefSnapshot {
 
 function writeBuilderSnapshot(snapshot: BuilderBriefSnapshot) {
   try {
-    window.sessionStorage.setItem(BUILDER_STORAGE_KEY, JSON.stringify(snapshot));
+    window.localStorage.setItem(BUILDER_STORAGE_KEY, JSON.stringify(snapshot));
   } catch {
     // The builder remains fully usable when browser storage is unavailable.
   }
@@ -642,7 +639,7 @@ function writeBuilderSnapshot(snapshot: BuilderBriefSnapshot) {
 
 function clearBuilderSnapshot() {
   try {
-    window.sessionStorage.removeItem(BUILDER_STORAGE_KEY);
+    window.localStorage.removeItem(BUILDER_STORAGE_KEY);
   } catch {
     // Publishing should never fail because browser storage is unavailable.
   }
@@ -655,14 +652,16 @@ function isBuilderSnapshot(value: unknown): value is BuilderBriefSnapshot {
     candidate.difficulty === "beginner" ||
     candidate.difficulty === "intermediate" ||
     candidate.difficulty === "advanced";
-  const hasStudentId = candidate.studentId === null || typeof candidate.studentId === "string";
+  const hasStudentIds =
+    Array.isArray(candidate.studentIds) &&
+    candidate.studentIds.every((studentId) => typeof studentId === "string");
   const hasActivityTypes =
     Array.isArray(candidate.activityTypes) &&
     candidate.activityTypes.every((value) =>
       ACTIVITY_TYPES.some((activityType) => activityType === value),
     );
   return (
-    hasStudentId &&
+    hasStudentIds &&
     hasActivityTypes &&
     typeof candidate.lessonNotes === "string" &&
     typeof candidate.targetSkills === "string" &&

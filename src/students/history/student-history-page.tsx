@@ -1,6 +1,7 @@
 import { Clock04Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { useConvex, useQuery } from "convex/react";
+import { useConvex } from "convex/react";
+import { useQuery } from "convex-helpers/react/cache";
 import { ArrowLeft } from "lucide-react";
 import { useEffect, useState } from "react";
 

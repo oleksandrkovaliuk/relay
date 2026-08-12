@@ -1,7 +1,8 @@
 import { CrownIcon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { Link } from "@tanstack/react-router";
-import { useMutation, useQuery } from "convex/react";
+import { useMutation } from "convex/react";
+import { useQuery } from "convex-helpers/react/cache";
 import { AlertTriangle, ArrowRight, Clock3, Eye, Inbox, Star } from "lucide-react";
 import { useState } from "react";
 

@@ -3,7 +3,7 @@
   "productName": "Relay",
   "version": "0.1.0",
   "private": true,
-  "description": "Relay \u2014 a one-to-one teacher workspace with interactive homework and live learning insights.",
+  "description": "Relay — a one-to-one teacher workspace with interactive homework and live learning insights.",
   "type": "module",
   "main": "out/main/index.js",
   "scripts": {
@@ -43,6 +43,7 @@
     "clsx": "^2.1.1",
     "cmdk": "^1.1.1",
     "convex": "^1.43.0",
+    "convex-helpers": "^0.1.122",
     "date-fns": "^4.4.0",
     "embla-carousel-react": "^8.6.0",
     "input-otp": "^1.4.2",

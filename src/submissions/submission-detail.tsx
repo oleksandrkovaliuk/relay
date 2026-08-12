@@ -1,4 +1,5 @@
-import { useMutation, useQuery } from "convex/react";
+import { useMutation } from "convex/react";
+import { useQuery } from "convex-helpers/react/cache";
 import { Check, Clock3, Eye, Pencil, Star, X } from "lucide-react";
 import { useState, type FormEvent, type ReactNode } from "react";
 
