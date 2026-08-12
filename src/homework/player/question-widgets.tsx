@@ -156,8 +156,11 @@ function ErrorFixWidget({
           onChange={(event) => onChange(event.target.value)}
           className={cn(
             "h-11 w-full max-w-sm rounded-xl border bg-card px-3 font-mono text-[15px] outline-none transition-[border-color,box-shadow] duration-150 focus-visible:border-primary focus-visible:ring-3 focus-visible:ring-ring/25",
-            markTone(singleMark(marking)) ??
-              (text.trim() ? "border-primary text-ink" : "border-border text-ink"),
+            marking
+              ? cn("border-border", singleMark(marking)?.isCorrect ? "text-primary" : "text-destructive")
+              : text.trim()
+                ? "border-primary text-ink"
+                : "border-border text-ink",
           )}
         />
         <ExpectedInline mark={singleMark(marking)} />
@@ -207,15 +210,15 @@ function MultipleChoiceWidget({
               isSelected && !marking
                 ? "border-primary bg-primary-soft font-medium text-primary"
                 : "border-border bg-card text-ink hover:border-input hover:bg-muted/45",
-              isWrongPick && "border-destructive font-medium text-destructive",
-              isExpected && "border-primary font-medium text-primary",
+              isWrongPick && "font-medium text-destructive",
+              isExpected && "font-medium text-primary",
               isReadOnly && "cursor-default",
             )}
           >
             <span
               className={cn(
                 "mt-0.5 grid size-5 shrink-0 place-items-center rounded-md border text-[11px] font-semibold leading-none",
-                isWrongPick && "border-destructive bg-destructive text-background",
+                isWrongPick && "border-destructive/50 text-destructive",
                 !isWrongPick && (isExpected || (isSelected && !marking))
                   ? "border-primary bg-primary text-primary-foreground"
                   : isWrongPick
@@ -279,7 +282,12 @@ function FillBlankWidget({
               onChange={(event) => updateBlank(index, event.target.value)}
               className={cn(
                 "h-11 min-w-0 flex-1 rounded-xl border bg-card px-3 text-[15px] outline-none transition-[border-color,box-shadow] duration-150 focus-visible:border-primary focus-visible:ring-3 focus-visible:ring-ring/25 lg:text-base",
-                markTone(marking?.parts[index]) ?? "border-border text-ink",
+                marking
+                  ? cn(
+                      "border-border",
+                      marking.parts[index]?.isCorrect ? "text-primary" : "text-destructive",
+                    )
+                  : "border-border text-ink",
               )}
               placeholder="Your answer"
             />
@@ -328,11 +336,6 @@ function ExpectedInline({ mark }: { mark?: { isCorrect: boolean; expected: strin
 function singleMark(marking?: WidgetMarking) {
   if (!marking) return undefined;
   return { isCorrect: marking.parts[0]?.isCorrect ?? false, expected: marking.expected ?? "" };
-}
-
-function markTone(mark?: { isCorrect: boolean }) {
-  if (!mark) return null;
-  return mark.isCorrect ? "border-primary text-primary" : "border-destructive text-destructive";
 }
 
 /**
@@ -446,10 +449,13 @@ function SelectClozeWidget({
               style={{ width: `${widestLabel + GAP_CHEVRON_WIDTH_CH}ch` }}
               className={cn(
                 "appearance-none rounded-none border-0 border-b-2 bg-transparent bg-none pb-0.5 pl-1 pr-5 text-center align-baseline text-[15px] font-medium outline-none transition-colors duration-150 focus-visible:border-primary disabled:cursor-default lg:text-base",
-                markTone(marking?.parts[gapIndex]) ??
-                  (selected >= 0
+                marking
+                  ? marking.parts[gapIndex]?.isCorrect
+                    ? "border-input text-primary"
+                    : "border-destructive text-destructive"
+                  : selected >= 0
                     ? "border-primary text-primary"
-                    : "border-input text-ink-muted hover:border-ink-muted"),
+                    : "border-input text-ink-muted hover:border-ink-muted",
               )}
             >
               <option value={UNSELECTED_OPTION} disabled>

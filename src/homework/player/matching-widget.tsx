@@ -510,7 +510,7 @@ function MatchingList({ lefts, rights, assigned, onChange, isReadOnly, marking }
               isTinted
                 ? "border-(--match-color) bg-[color-mix(in_oklab,var(--match-color)_10%,var(--card))] text-(--match-text)"
                 : "border-border bg-card text-ink",
-              mark && !mark.isCorrect && "border-destructive",
+
               isOpen && "shadow-[0_0_0_3px_color-mix(in_oklab,var(--match-color)_20%,transparent)]",
             )}
           >

@@ -22,15 +22,16 @@ const VERDICT_LABELS: Record<Verdict, string> = {
 };
 
 /**
- * A verdict is a word and a left edge — never a filled card. Tinting whole
- * activities buried the one thing worth spotting: the answer that went wrong.
+ * The verdict is carried by the task's own border and nothing else. Inside it,
+ * only text is coloured — a red box around every wrong row turned six mistakes
+ * into six competing containers, which is harder to read than the plain list.
  */
-const VERDICT_STYLES: Record<Verdict, { edge: string; text: string }> = {
-  correct: { edge: "border-l-primary/40", text: "text-primary" },
-  partial: { edge: "border-l-destructive/50", text: "text-destructive" },
-  incorrect: { edge: "border-l-destructive", text: "text-destructive" },
-  pending: { edge: "border-l-input", text: "text-ink-secondary" },
-  skipped: { edge: "border-l-input", text: "text-ink-muted" },
+const VERDICT_STYLES: Record<Verdict, { border: string; text: string }> = {
+  correct: { border: "border-primary/45", text: "text-primary" },
+  partial: { border: "border-destructive/45", text: "text-destructive" },
+  incorrect: { border: "border-destructive/70", text: "text-destructive" },
+  pending: { border: "border-border", text: "text-ink-secondary" },
+  skipped: { border: "border-border", text: "text-ink-muted" },
 };
 
 /**
@@ -108,10 +109,7 @@ function ReviewRow({ item, step }: { item: ReviewItem; step: number }) {
 
   return (
     <article
-      className={cn(
-        "overflow-hidden rounded-xl border border-border border-l-[3px] bg-card",
-        styles.edge,
-      )}
+      className={cn("overflow-hidden rounded-xl border bg-card", styles.border)}
     >
       <div className="flex items-start gap-3 px-4 py-3.5">
         <span className="mt-0.5 w-5 shrink-0 font-mono text-[12px] text-ink-secondary numeric">
@@ -336,7 +334,7 @@ export function ReviewTotal({
   action?: ReactNode;
 }) {
   return (
-    <div className="sticky bottom-0 z-10 flex flex-wrap items-baseline gap-x-3 gap-y-1.5 rounded-xl bg-ink px-4 py-3.5 text-background">
+    <div className="sticky bottom-0 z-10 mt-6 flex flex-wrap items-baseline gap-x-3 gap-y-1.5 rounded-xl bg-ink px-4 py-3.5 text-background">
       <p className="text-[24px] font-semibold leading-none tracking-[-0.03em] numeric">
         {score} / {maxAutoScore}
       </p>

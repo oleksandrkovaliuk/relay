@@ -5,7 +5,6 @@ import {
   ArrowRight,
   CalendarDays,
   Check,
-  CheckCircle2,
   Clock3,
   Send,
   Star,
@@ -27,6 +26,7 @@ import {
   type AnswerResponse,
   type PlayerQuestion,
 } from "./answer-types";
+import { Confetti, pickCelebrationEmoji } from "./confetti";
 import { HomeworkReview, ReviewTotal } from "./homework-review";
 import { HomeworkWizard, HomeworkWizardFrame } from "./homework-wizard";
 import { splitLessonTitle, summaryForStudent } from "./lesson-copy";
@@ -625,6 +625,7 @@ function ResultPanel({
 }) {
   const panelRef = useRef<HTMLDivElement>(null);
   const [isReviewOpen, setIsReviewOpen] = useState(false);
+  const [celebrationEmoji] = useState(pickCelebrationEmoji);
   const review = useQuery(
     api.submissions.review,
     session && isReviewOpen
@@ -654,10 +655,15 @@ function ResultPanel({
 
   return (
     <div ref={panelRef}>
-      <PlayerCard>
-        <div className="text-center">
-          <div className="mx-auto grid size-12 place-items-center text-primary">
-            <CheckCircle2 size={32} strokeWidth={1.75} aria-hidden />
+      <PlayerCard className="relative">
+        {/* The burst is drawn over the card, not in it, so nothing shifts. */}
+        <Confetti />
+        <div className="relative text-center">
+          <div
+            className="mx-auto grid size-12 place-items-center text-[34px] leading-none"
+            aria-hidden
+          >
+            {celebrationEmoji}
           </div>
           <h1 className="mt-4 text-balance text-[26px] font-semibold leading-tight tracking-[-0.03em] text-ink sm:text-[32px]">
             Submitted{studentName ? `, ${studentName}` : ""}.
