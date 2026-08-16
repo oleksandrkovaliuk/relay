@@ -225,5 +225,7 @@ describe("buildQuestionRewritePrompt", () => {
     expect(prompt).toContain("Do not rewrite, add, remove, or reorder");
     expect(prompt).toContain("Keep the current question `id`");
     expect(prompt).toContain("Match the travel words.");
+    expect(prompt).toContain("must directly implement the teacher's requested change");
+    expect(prompt).toContain("Keep the current activity type unless the teacher explicitly asks");
   });
 });

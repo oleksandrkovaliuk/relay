@@ -39,12 +39,28 @@ export function QuestionWidget({
   isReadOnly,
   marking,
 }: WidgetProps) {
-  if (content.kind === "multiple_choice" && response.kind === "choice") {
+  if (
+    content.kind === "multiple_choice" &&
+    (response.kind === "choice" || response.kind === "choices")
+  ) {
+    const choiceIndices =
+      response.kind === "choices"
+        ? response.choiceIndices
+        : response.choiceIndex >= 0
+          ? [response.choiceIndex]
+          : [];
     return (
       <MultipleChoiceWidget
         choices={content.choices}
-        choiceIndex={response.choiceIndex}
-        onSelect={(choiceIndex) => onChange({ kind: "choice", choiceIndex })}
+        choiceIndices={choiceIndices}
+        onToggle={(choiceIndex) =>
+          onChange({
+            kind: "choices",
+            choiceIndices: choiceIndices.includes(choiceIndex)
+              ? choiceIndices.filter((selectedIndex) => selectedIndex !== choiceIndex)
+              : [...choiceIndices, choiceIndex].toSorted((left, right) => left - right),
+          })
+        }
         isReadOnly={isReadOnly}
         marking={marking}
       />
@@ -266,31 +282,35 @@ export function FlaggedPhrase({
 
 function MultipleChoiceWidget({
   choices,
-  choiceIndex,
-  onSelect,
+  choiceIndices,
+  onToggle,
   isReadOnly,
   marking,
 }: {
   choices: string[];
-  choiceIndex: number;
-  onSelect: (choiceIndex: number) => void;
+  choiceIndices: number[];
+  onToggle: (choiceIndex: number) => void;
   isReadOnly?: boolean;
   marking?: WidgetMarking;
 }) {
+  const expectedChoiceIndices =
+    marking?.correctChoiceIndices ??
+    (marking?.correctChoiceIndex === undefined ? [] : [marking.correctChoiceIndex]);
+
   return (
-    <div role="radiogroup" className="grid gap-2.5">
+    <div role="group" aria-label="Answer choices" className="grid gap-2.5">
       {choices.map((choice, index) => {
-        const isSelected = index === choiceIndex;
-        const isExpected = marking ? index === marking.correctChoiceIndex : false;
+        const isSelected = choiceIndices.includes(index);
+        const isExpected = marking ? expectedChoiceIndices.includes(index) : false;
         const isWrongPick = Boolean(marking) && isSelected && !isExpected;
         return (
           <button
             key={choice}
             type="button"
-            role="radio"
+            role="checkbox"
             aria-checked={isSelected}
             disabled={isReadOnly}
-            onClick={() => onSelect(index)}
+            onClick={() => onToggle(index)}
             className={cn(
               "flex min-h-[3.25rem] w-full items-start gap-3.5 rounded-xl border px-3.5 py-3 text-left text-[15px] leading-6 transition-[background-color,border-color,color,transform] duration-[120ms] ease-[var(--ease-out)] active:scale-[.99] motion-reduce:active:scale-100 lg:text-base",
               isSelected && !marking

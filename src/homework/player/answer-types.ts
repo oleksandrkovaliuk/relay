@@ -17,6 +17,7 @@ export type PublicQuestionContent =
 
 export type AnswerResponse =
   | { kind: "choice"; choiceIndex: number }
+  | { kind: "choices"; choiceIndices: number[] }
   | { kind: "blanks"; values: string[] }
   | { kind: "matches"; rights: string[] }
   | { kind: "selections"; selectedOptions: number[] }
@@ -72,7 +73,7 @@ export const UNSELECTED_OPTION = -1;
 export function emptyResponse(content: PublicQuestionContent): AnswerResponse {
   switch (content.kind) {
     case "multiple_choice":
-      return { kind: "choice", choiceIndex: -1 };
+      return { kind: "choices", choiceIndices: [] };
     case "fill_blank":
       return { kind: "blanks", values: Array.from({ length: content.blankCount }, () => "") };
     case "matching":
@@ -95,6 +96,8 @@ export function isAnswerComplete(response: AnswerResponse) {
   switch (response.kind) {
     case "choice":
       return response.choiceIndex >= 0;
+    case "choices":
+      return response.choiceIndices.length > 0;
     case "blanks":
       return response.values.every((value) => value.trim().length > 0);
     case "matches":
@@ -114,6 +117,8 @@ export function hasAnyAnswer(response: AnswerResponse) {
   switch (response.kind) {
     case "choice":
       return response.choiceIndex >= 0;
+    case "choices":
+      return response.choiceIndices.length > 0;
     case "blanks":
       return response.values.some((value) => value.trim().length > 0);
     case "matches":
@@ -165,6 +170,8 @@ export type WidgetMarking = {
   parts: { isCorrect: boolean; expected: string }[];
   /** Multiple choice: which option was right. */
   correctChoiceIndex?: number;
+  /** Multiple choice: every option that was expected. */
+  correctChoiceIndices?: number[];
   /** A single typed answer: error_fix and open_response. */
   expected?: string | null;
 };

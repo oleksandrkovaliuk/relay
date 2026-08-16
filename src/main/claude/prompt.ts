@@ -11,7 +11,7 @@ const UNTRUSTED_SOURCE_RULE =
 
 const QUESTION_FORMAT_RULES = [
   "Every question renders as an interactive widget, so its `content` must match the widget exactly:",
-  "- multiple_choice: `choices` plus `correctChoice` as the zero-based index of the right option.",
+  "- multiple_choice: `choices` plus `correctChoices`, an array of every zero-based correct option index. Include more than one index whenever several choices are valid.",
   "- fill_blank: `text` containing one `{{1}}`, `{{2}}`, … marker per blank in order, and one `blanks` entry per marker listing every acceptable answer (include contractions and common spellings). Set a blank's optional `hint` to the dictionary form the student must reshape — `go` for a gap whose answer is `goes`, `be` for `was`. The player shows the hint in brackets next to the gap, so never write the bracketed word into `text` yourself.",
   "- matching: 3-8 `pairs` of `left` (prompt) and `right` (its match). The player shuffles the right column.",
   "- select_cloze: a continuous passage in `text` with one `{{1}}`, `{{2}}`, … marker per gap and 3-15 `gaps`, each holding 2-4 `options` and `correctOption`. The student picks from a dropdown at every gap. Options must be genuinely competing forms, not one right answer beside obvious nonsense. Add a one-clause `explanation` to the gaps where the reason is not obvious — under 120 characters, shown only when that gap was answered wrongly.",
@@ -174,6 +174,8 @@ export function buildQuestionRewritePrompt(input: RewriteHomeworkQuestionInput) 
       : null,
     describeTeachingStyle(input.teachingStyle),
     QUESTION_FORMAT_RULES,
+    "The result must directly implement the teacher's requested change. Do not replace it with a different improvement, a generic activity, or an unrelated topic.",
+    "Keep the current activity type unless the teacher explicitly asks to change the interaction. Keep its subject matter unless the request requires different content.",
     "Keep the current question `id`. Preserve what already works, but fully update every dependent field required by the teacher's request, including answer keys, distractors, skill tags, difficulty, points, and explanation when relevant.",
     "The rewritten activity must stand alone and remain consistent with the homework's topic and level.",
     "Return the finished activity as the `question` field of the result object. `question.content` is the widget's own data — do not nest the whole activity inside it.",

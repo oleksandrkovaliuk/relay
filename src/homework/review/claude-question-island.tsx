@@ -279,7 +279,22 @@ export function ClaudeQuestionIsland({
       if (requestIdRef.current !== requestId) return;
       setLiveRequestId(null);
       setSuggestion(result.question);
-      setState("result");
+      setState("applying");
+
+      try {
+        await onApply(questionId, result.question);
+        await dismissRewrite({ aiJobId }).catch(() => undefined);
+        setSuggestion(null);
+        setInstruction("");
+        setState("idle");
+      } catch (caught) {
+        setError(
+          caught instanceof Error ? caught.message : "The revision could not be applied.",
+        );
+        // Keep the generated activity available so a transient save failure
+        // never turns a completed edit into lost work.
+        setState("result");
+      }
     } catch (caught) {
       const message =
         caught instanceof Error ? caught.message : "Claude could not revise this activity.";

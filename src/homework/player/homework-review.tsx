@@ -285,10 +285,10 @@ function toWidgetMarking(item: ReviewItem): WidgetMarking {
     expected: part.expected,
   }));
   if (item.content.kind === "multiple_choice") {
-    const correctChoiceIndex = item.content.choices.findIndex(
-      (choice) => choice === item.correctAnswer,
+    const correctChoiceIndices = item.parts.flatMap((part, index) =>
+      part.expected === "Select" ? [index] : [],
     );
-    return { parts, ...(correctChoiceIndex >= 0 ? { correctChoiceIndex } : {}) };
+    return { parts, correctChoiceIndices };
   }
   if (parts.length === 0) {
     // One typed answer: error_fix and the written tasks.
@@ -354,4 +354,3 @@ function describeTotal(percentage: number) {
   if (percentage >= 70) return "Look at every red one and say out loud what the right form does.";
   return "Open the cheat sheet at the top, then read the red notes one by one.";
 }
-

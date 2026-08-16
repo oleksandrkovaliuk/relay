@@ -13,6 +13,9 @@ permissions:
 
 jobs:
   build:
+    # VITE_* values are environment variables, so selecting the environment is
+    # required before GitHub exposes them to this job.
+    environment: production
     strategy:
       fail-fast: false
       matrix:
@@ -24,6 +27,13 @@ jobs:
           - os: ubuntu-latest
             target: --linux
     runs-on: ${{ matrix.os }}
+    env:
+      # Vite reads these during `pnpm build`; setting them only on the later
+      # electron-builder step would package a renderer with empty URLs.
+      VITE_CONVEX_URL: ${{ vars.VITE_CONVEX_URL }}
+      VITE_PLAYER_ORIGIN: ${{ vars.VITE_PLAYER_ORIGIN }}
+      HAS_CSC_LINK: ${{ secrets.CSC_LINK != '' }}
+      HAS_APPLE_ID: ${{ secrets.APPLE_ID != '' }}
     steps:
       - uses: actions/checkout@v5
       - uses: pnpm/action-setup@v4
@@ -34,23 +44,32 @@ jobs:
           node-version: 24
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      - name: Verify production URLs
+        shell: bash
+        run: |
+          test -n "$VITE_CONVEX_URL"
+          test -n "$VITE_PLAYER_ORIGIN"
       - run: pnpm build
 
       # Notarization stays off in electron-builder.yml so local builds are fast and
       # offline; it is switched on here only when the Apple credentials exist.
-      - name: Build and publish
+      - name: Build and publish unsigned release
+        if: matrix.os != 'macos-15' || env.HAS_CSC_LINK == 'false'
         run: >
           pnpm exec electron-builder ${{ matrix.target }} --publish always
-          ${{ matrix.os == 'macos-15' && secrets.CSC_LINK == '' && '--config.mac.identity=-' || '' }}
-          ${{ matrix.os == 'macos-15' && secrets.APPLE_ID != '' && '--config.mac.notarize=true' || '' }}
+          ${{ matrix.os == 'macos-15' && '--config.mac.identity=-' || '' }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # Baked into the renderer at build time: a release must point at
-          # production, never at a development deployment.
-          VITE_CONVEX_URL: ${{ vars.VITE_CONVEX_URL }}
-          VITE_PLAYER_ORIGIN: ${{ vars.VITE_PLAYER_ORIGIN }}
+
+      - name: Build, sign, notarize, and publish macOS release
+        if: matrix.os == 'macos-15' && env.HAS_CSC_LINK == 'true'
+        run: >
+          pnpm exec electron-builder --mac --publish always
+          ${{ env.HAS_APPLE_ID == 'true' && '--config.mac.notarize=true' || '' }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # Signing certificate as base64 (.p12) plus its password. macOS uses a
-          # Developer ID Application certificate; Windows an OV/EV certificate.
+          # Developer ID Application certificate.
           CSC_LINK: ${{ secrets.CSC_LINK }}
           CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
           # Notarization; without these macOS falls back to ad-hoc signing, which

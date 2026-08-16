@@ -6,8 +6,10 @@ export const questionContentSchema = z.discriminatedUnion("kind", [
   z.object({
     kind: z.literal("multiple_choice"),
     choices: z.array(nonEmptyString).min(2).max(8),
-    // An index, so an upper bound here only invents a way to fail.
-    correctChoice: z.number().int().min(0),
+    /** New activities may have more than one correct answer. */
+    correctChoices: z.array(z.number().int().min(0)).min(1).max(8).optional(),
+    /** Kept while existing assignments still use the original single-answer shape. */
+    correctChoice: z.number().int().min(0).optional(),
     /**
      * What happened before what, oldest first — "you don't lock the bike" then
      * "you come back and it's gone". Shown with the answer so a tense choice
@@ -110,23 +112,47 @@ export const questionSetSchema = z.object({
   task: nonEmptyString.max(1_000),
 });
 
-export const homeworkQuestionSchema = z.object({
-  id: nonEmptyString,
-  type: activityTypeSchema,
-  prompt: nonEmptyString,
-  instructions: nonEmptyString,
-  content: questionContentSchema,
-  skillTags: z.array(nonEmptyString).min(1).max(8),
-  points: z.number().int().min(1).max(50),
-  difficulty: z.enum(["easy", "medium", "hard"]),
-  /**
-   * Why the right answer is right and, where it helps, why the tempting wrong
-   * one is wrong. Shown to the student after they submit.
-   */
-  explanation: nonEmptyString,
-  /** Activities sharing a title form one set, in order. */
-  set: questionSetSchema.optional(),
-});
+export const homeworkQuestionSchema = z
+  .object({
+    id: nonEmptyString,
+    type: activityTypeSchema,
+    prompt: nonEmptyString,
+    instructions: nonEmptyString,
+    content: questionContentSchema,
+    skillTags: z.array(nonEmptyString).min(1).max(8),
+    points: z.number().int().min(1).max(50),
+    difficulty: z.enum(["easy", "medium", "hard"]),
+    /**
+     * Why the right answer is right and, where it helps, why the tempting wrong
+     * one is wrong. Shown to the student after they submit.
+     */
+    explanation: nonEmptyString,
+    /** Activities sharing a title form one set, in order. */
+    set: questionSetSchema.optional(),
+  })
+  .superRefine((question, context) => {
+    if (question.content.kind !== "multiple_choice") return;
+    const correctChoices = question.content.correctChoices ?? [];
+    const hasLegacyCorrectChoice = question.content.correctChoice !== undefined;
+    if (correctChoices.length === 0 && !hasLegacyCorrectChoice) {
+      context.addIssue({
+        code: "custom",
+        message: "A multiple-choice activity needs at least one correct answer.",
+        path: ["content", "correctChoices"],
+      });
+      return;
+    }
+    const configuredChoices =
+      correctChoices.length > 0 ? correctChoices : [question.content.correctChoice!];
+    const choiceCount = question.content.choices.length;
+    if (configuredChoices.some((choiceIndex) => choiceIndex >= choiceCount)) {
+      context.addIssue({
+        code: "custom",
+        message: "A correct answer index must reference an available choice.",
+        path: ["content", "correctChoices"],
+      });
+    }
+  });
 
 /** One line of the cheat sheet: a form and what it does. */
 export const referenceRuleSchema = z.object({

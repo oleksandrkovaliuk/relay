@@ -207,6 +207,7 @@ export function DraftReview({
         points: question.points,
         difficulty: question.difficulty,
         explanation: question.explanation,
+        ...(question.set ? { set: question.set } : {}),
       },
     });
   }
@@ -628,6 +629,10 @@ function QuestionPreview({
   );
   const [response, setResponse] = useState(() => emptyResponse(publicContent));
 
+  useEffect(function resetPreviewAnswerAfterRevision() {
+    setResponse(emptyResponse(publicContent));
+  }, [publicContent]);
+
   return (
     <HomeworkWizard
       currentStep={index + 1}
@@ -895,6 +900,7 @@ function toHomeworkQuestion(sourceQuestion: DraftQuestion) {
     points: sourceQuestion.points,
     difficulty: sourceQuestion.difficulty,
     explanation: sourceQuestion.explanation,
+    ...(sourceQuestion.set ? { set: sourceQuestion.set } : {}),
   });
 }
 
