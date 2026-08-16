@@ -1,7 +1,6 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 
 import type { Id } from "@convex/_generated/dataModel";
-import { PageHeader } from "@/app/workspace-shell";
 import { useSharedClaudeAvailability } from "@/claude/claude-availability-context";
 import { HomeworkBuilder } from "@/homework/builder/homework-builder";
 
@@ -19,20 +18,16 @@ function NewHomeworkPage() {
   const { availability } = useSharedClaudeAvailability();
 
   return (
-    <>
-      <PageHeader
-        title="Build homework"
-        description="Shape the brief and preview the student experience as you go."
-      />
-      <HomeworkBuilder
+    <HomeworkBuilder
         key={studentId ?? "general"}
         availability={availability}
         initialStudentId={(studentId as Id<"students"> | undefined) ?? null}
         // Opening the builder for a named student starts clean; the plain
         // "New homework" entry resumes whatever brief was last being written.
         startFresh={studentId !== undefined}
-        onPublished={() => void navigate({ to: "/homework" })}
-      />
-    </>
+      // Generation runs above the pages now, so the builder hands off and the
+      // library takes over: the run appears there, then the draft.
+      onGenerationStarted={() => void navigate({ to: "/homework" })}
+    />
   );
 }

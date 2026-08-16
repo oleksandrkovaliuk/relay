@@ -82,6 +82,72 @@ describe("buildHomeworkPrompt", () => {
     expect(prompt).toContain("keep mixing in other types");
   });
 
+  it("keeps a widget's own material out of the prompt the student reads above it", () => {
+    const prompt = buildHomeworkPrompt({
+      requestId: "request-7",
+      lessonNotes: "Past perfect",
+      targetSkills: [],
+      durationMinutes: 20,
+      difficulty: "intermediate",
+      activityTypes: ["error_fix"],
+    });
+
+    expect(prompt).toContain("must reproduce the whole sentence");
+    expect(prompt).toContain("shows the student the same thing twice");
+    // The listing rule still has to survive for the one widget that needs it.
+    expect(prompt).toContain("An open_response `prompt` must contain every sentence");
+  });
+
+  it("groups error correction into one passage instead of repeating one-liners", () => {
+    const prompt = buildHomeworkPrompt({
+      requestId: "request-8",
+      lessonNotes: "Past perfect",
+      targetSkills: [],
+      durationMinutes: 20,
+      difficulty: "intermediate",
+      activityTypes: [],
+    });
+
+    expect(prompt).toContain("At most one error_fix in the whole set");
+    expect(prompt).toContain("one proofread passage");
+    expect(prompt).toContain("Never give two activities the same `prompt`");
+  });
+
+  it("carries the teacher's standing rules and past corrections into the brief", () => {
+    const prompt = buildHomeworkPrompt({
+      requestId: "request-9",
+      lessonNotes: "Money idioms",
+      targetSkills: [],
+      durationMinutes: 20,
+      difficulty: "advanced",
+      activityTypes: [],
+      teachingStyle: {
+        styleNotes: "Avoid textbook sentences. Tie everything to real work.",
+        editInstructions: ["Make the distractors more plausible"],
+        keptExamples: ["Fix the four verb forms in this travel diary."],
+      },
+    });
+
+    expect(prompt).toContain("Avoid textbook sentences");
+    expect(prompt).toContain("Make the distractors more plausible");
+    expect(prompt).toContain("Fix the four verb forms in this travel diary.");
+    expect(prompt).toContain("none of them is needed again");
+  });
+
+  it("says nothing about style when the teacher has set none", () => {
+    const prompt = buildHomeworkPrompt({
+      requestId: "request-10",
+      lessonNotes: "Money idioms",
+      targetSkills: [],
+      durationMinutes: 20,
+      difficulty: "advanced",
+      activityTypes: [],
+      teachingStyle: { styleNotes: "", editInstructions: [], keptExamples: [] },
+    });
+
+    expect(prompt).not.toContain("standing rules");
+  });
+
   it("explains the harder formats the generator can reach for", () => {
     const prompt = buildHomeworkPrompt({
       requestId: "request-6",

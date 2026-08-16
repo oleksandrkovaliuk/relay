@@ -46,6 +46,16 @@ export const referenceRuleValidator = v.object({
 });
 
 export default defineSchema({
+  /**
+   * How this teacher wants homework written, in their own words. One row: Relay
+   * is a single teacher's workspace, and this is the part of their taste no
+   * amount of reading their past sets can infer.
+   */
+  teacherProfile: defineTable({
+    styleNotes: v.string(),
+    updatedAt: v.number(),
+  }),
+
   students: defineTable({
     name: v.string(),
     email: v.optional(v.string()),

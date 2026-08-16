@@ -11,6 +11,8 @@ export type PublicQuestionContent =
   | { kind: "select_cloze"; text: string; gaps: { options: string[] }[] }
   /** A sentence with one wrong phrase flagged; the student retypes that phrase. */
   | { kind: "error_fix"; before: string; flagged: string; after: string }
+  /** A passage with several wrong forms in it, corrected one marker at a time. */
+  | { kind: "proofread"; text: string; errors: { flagged: string }[] }
   | { kind: "open_response" };
 
 export type AnswerResponse =
@@ -80,6 +82,9 @@ export function emptyResponse(content: PublicQuestionContent): AnswerResponse {
         kind: "selections",
         selectedOptions: content.gaps.map(() => UNSELECTED_OPTION),
       };
+    case "proofread":
+      // One typed correction per flagged form, marked the way blanks are.
+      return { kind: "blanks", values: content.errors.map(() => "") };
     case "error_fix":
     case "open_response":
       return { kind: "text", text: "" };

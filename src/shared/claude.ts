@@ -59,6 +59,27 @@ export const questionContentSchema = z.discriminatedUnion("kind", [
     after: z.string().max(1_000),
     acceptedAnswers: z.array(nonEmptyString).min(1).max(12),
   }),
+  /**
+   * A short piece of writing with several wrong forms in it, corrected in place.
+   * One passage teaches more than the same corrections split into three
+   * near-identical one-sentence activities, and it reads as a text rather than
+   * as a drill.
+   */
+  z.object({
+    kind: z.literal("proofread"),
+    /** The passage, with one `{{1}}`, `{{2}}`, … marker per mistake. */
+    text: nonEmptyString.max(2_000),
+    errors: z
+      .array(
+        z.object({
+          /** The wrong form as the student sees it, struck through in place. */
+          flagged: nonEmptyString.max(120),
+          acceptedAnswers: z.array(nonEmptyString).min(1).max(12),
+        }),
+      )
+      .min(2)
+      .max(8),
+  }),
   z.object({
     kind: z.literal("open_response"),
     expectedAnswer: nonEmptyString.optional(),
@@ -76,6 +97,7 @@ export const ACTIVITY_TYPES = [
   "matching",
   "select_cloze",
   "error_fix",
+  "proofread",
   "short_answer",
   "rewrite",
 ] as const;
@@ -128,6 +150,52 @@ export const homeworkDraftSchema = z.object({
   questions: z.array(homeworkQuestionSchema).min(1).max(30),
 });
 
+/**
+ * The models a teacher can pick between. Sonnet is the default because a full
+ * set is one large structured answer: Opus spends about three minutes on it,
+ * Sonnet a fraction of that, and the difference in the worksheet is small next
+ * to the difference in waiting.
+ */
+export const CLAUDE_MODELS = [
+  {
+    id: "claude-sonnet-5",
+    label: "Sonnet 5",
+    description: "The default. Fast enough to wait for, and strong at worksheet writing.",
+  },
+  {
+    id: "claude-opus-5",
+    label: "Opus 5",
+    description: "Deeper reasoning for tricky briefs. Noticeably slower and dearer.",
+  },
+  {
+    id: "claude-haiku-4-5",
+    label: "Haiku 4.5",
+    description: "Quickest and cheapest. Best for a rough draft you intend to edit.",
+  },
+] as const;
+
+export const claudeModelSchema = z.enum([
+  "claude-sonnet-5",
+  "claude-opus-5",
+  "claude-haiku-4-5",
+]);
+
+export const DEFAULT_CLAUDE_MODEL: ClaudeModel = "claude-sonnet-5";
+
+/**
+ * What Relay has learned about this teacher, carried into every request. Each
+ * Claude run is a fresh session with no memory of the last one, so continuity is
+ * something the app supplies rather than something the model remembers.
+ */
+export const teachingStyleSchema = z.object({
+  /** Their own rules, written once. */
+  styleNotes: z.string().max(4_000),
+  /** Corrections they have asked for before, newest first. */
+  editInstructions: z.array(z.string().max(600)).max(8),
+  /** Prompts from sets they published unchanged. */
+  keptExamples: z.array(z.string().max(1_200)).max(3),
+});
+
 export const generateHomeworkInputSchema = z
   .object({
     requestId: z.string().min(1).max(128),
@@ -141,6 +209,9 @@ export const generateHomeworkInputSchema = z
     difficulty: z.enum(["beginner", "intermediate", "advanced"]),
     /** Empty means "any" — the generator picks the mix itself. */
     activityTypes: z.array(activityTypeSchema).max(ACTIVITY_TYPES.length).default([]),
+    /** Omitted falls back to the app default rather than the CLI's. */
+    model: claudeModelSchema.optional(),
+    teachingStyle: teachingStyleSchema.optional(),
   })
   .refine(
     (input) =>
@@ -157,6 +228,8 @@ export const rewriteHomeworkQuestionInputSchema = z.object({
   teacherInstruction: z.string().min(1).max(10_000),
   question: homeworkQuestionSchema,
   neighboringPrompts: z.array(z.string().min(1).max(20_000)).max(4),
+  model: claudeModelSchema.optional(),
+  teachingStyle: teachingStyleSchema.optional(),
 });
 
 /**
@@ -170,6 +243,7 @@ export const attachHomeworkToBoardInputSchema = z.object({
   title: nonEmptyString.max(300),
   summary: z.string().max(2_000),
   shareUrl: z.string().url(),
+  model: claudeModelSchema.optional(),
 });
 
 export const boardAttachmentSchema = z.object({
@@ -205,6 +279,7 @@ export const summarizeSubmissionInputSchema = z.object({
       }),
     )
     .max(40),
+  model: claudeModelSchema.optional(),
 });
 
 export const submissionSummarySchema = z.object({
@@ -238,6 +313,15 @@ export const claudeQuestionRewriteResultSchema = z.object({
   requestId: z.string(),
   question: homeworkQuestionSchema,
 });
+
+/**
+ * What the model is asked to return for a rewrite: the question inside a named
+ * field, not as the root object. A question has its own `content` field, and
+ * asking for one at the root made the model wrap the whole thing in `content`
+ * on its first attempt every single time — a rejected tool call and a wasted
+ * turn before it corrected itself.
+ */
+export const questionRewriteOutputSchema = z.object({ question: homeworkQuestionSchema });
 
 export const claudeRuntimeEventSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("started"), requestId: z.string() }),
@@ -361,6 +445,8 @@ export type SummarizeSubmissionInput = z.infer<typeof summarizeSubmissionInputSc
 export type SubmissionSummary = z.infer<typeof submissionSummarySchema>;
 export type DesktopNotification = z.infer<typeof desktopNotificationSchema>;
 export type ActivityType = z.infer<typeof activityTypeSchema>;
+export type ClaudeModel = z.infer<typeof claudeModelSchema>;
+export type TeachingStyle = z.infer<typeof teachingStyleSchema>;
 export type StoredClaudeConnection = z.infer<typeof storedClaudeConnectionSchema>;
 export type StoredClaudeConnectionState = z.infer<typeof storedClaudeConnectionStateSchema>;
 export type ClaudeConnection = z.infer<typeof claudeConnectionSchema>;

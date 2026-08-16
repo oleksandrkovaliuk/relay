@@ -14,7 +14,7 @@ import { useState, type ReactNode } from "react";
 
 import { api } from "@convex/_generated/api";
 import type { Id } from "@convex/_generated/dataModel";
-import { ListSkeleton } from "@/components/list-skeleton";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -90,7 +90,7 @@ export function StudentsView({
           </div>
 
           {students === undefined ? (
-            <ListSkeleton rows={3} label="Loading students" />
+            <StudentCardsSkeleton />
           ) : students.length === 0 ? (
             <div className="panel">
               <Empty className="border-0">
@@ -156,6 +156,43 @@ export function StudentsView({
 
       <NewStudentDialogContent onSaved={() => setIsAdding(false)} />
     </Dialog>
+  );
+}
+
+/** One panel per student, the way the real list is built — not one long sheet. */
+function StudentCardsSkeleton() {
+  return (
+    <div role="status" aria-busy="true" aria-label="Loading students" className="grid gap-3">
+      {["first", "second", "third"].map((key) => (
+        <div key={key} className="panel px-4 py-5 sm:px-5 xl:px-6 xl:py-6">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+            <div className="flex min-w-0 items-center gap-3">
+              <Skeleton className="size-8 shrink-0 rounded-full" />
+              <div className="min-w-0">
+                <Skeleton className="h-3.5 w-40" />
+                <Skeleton className="mt-2 h-2.5 w-52" />
+              </div>
+            </div>
+            <div className="flex flex-wrap gap-1.5 lg:shrink-0 lg:justify-end">
+              <Skeleton className="h-9 w-20 rounded-2xl" />
+              <Skeleton className="h-9 w-24 rounded-2xl" />
+              <Skeleton className="h-9 w-28 rounded-2xl" />
+            </div>
+          </div>
+          <Skeleton className="mt-5 h-2.5 w-16" />
+          <Skeleton className="mt-2.5 h-2.5 w-full max-w-2xl" />
+          <div className="mt-5 flex flex-wrap gap-x-10 gap-y-3">
+            {["assigned", "submitted", "average", "active"].map((statKey) => (
+              <div key={statKey}>
+                <Skeleton className="h-2.5 w-16" />
+                <Skeleton className="mt-2 h-4 w-10" />
+              </div>
+            ))}
+          </div>
+        </div>
+      ))}
+      <span className="sr-only">Loading students</span>
+    </div>
   );
 }
 

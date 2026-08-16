@@ -276,6 +276,8 @@ export const finishWithError = mutation({
 });
 
 const MAX_ACTIVE_JOBS = 20;
+/** Long enough to be seen after a coffee, short enough not to become clutter. */
+const FAILURE_VISIBLE_FOR_MS = 2 * 60 * 60 * 1_000;
 
 /**
  * Generation runs on the teacher's machine but is recorded here, so the
@@ -289,12 +291,14 @@ export const listActive = query({
       _id: v.id("aiJobs"),
       kind: v.union(v.literal("homework_generation"), v.literal("question_rewrite")),
       title: v.string(),
-      status: v.union(v.literal("pending"), v.literal("running")),
+      status: v.union(v.literal("pending"), v.literal("running"), v.literal("failed")),
       studentName: v.union(v.string(), v.null()),
       createdAt: v.number(),
       startedAt: v.optional(v.number()),
       latestActivity: v.optional(aiJobActivityValidator),
       activityCount: v.optional(v.number()),
+      /** Set only on a failure, so the teacher learns why without digging. */
+      errorMessage: v.optional(v.string()),
     }),
   ),
   handler: async (ctx) => {
@@ -308,8 +312,19 @@ export const listActive = query({
       .withIndex("by_status_and_createdAt", (q) => q.eq("status", "running"))
       .order("desc")
       .take(MAX_ACTIVE_JOBS);
+    /**
+     * A generation now runs while the teacher is somewhere else, so a failure
+     * has nowhere else to surface. Recent ones stay in the list until dismissed.
+     */
+    const failed = (
+      await ctx.db
+        .query("aiJobs")
+        .withIndex("by_status_and_createdAt", (q) => q.eq("status", "failed"))
+        .order("desc")
+        .take(MAX_ACTIVE_JOBS)
+    ).filter((job) => Date.now() - (job.completedAt ?? job.createdAt) < FAILURE_VISIBLE_FOR_MS);
 
-    const active = [...running, ...pending]
+    const active = [...running, ...pending, ...failed]
       .toSorted((left, right) => right.createdAt - left.createdAt)
       .slice(0, MAX_ACTIVE_JOBS);
 
@@ -320,12 +335,20 @@ export const listActive = query({
           _id: job._id,
           kind: job.kind,
           title: job.title,
-          status: job.status === "running" ? ("running" as const) : ("pending" as const),
+          status:
+            job.status === "running"
+              ? ("running" as const)
+              : job.status === "failed"
+                ? ("failed" as const)
+                : ("pending" as const),
           studentName: student?.name ?? null,
           createdAt: job.createdAt,
           ...(job.startedAt === undefined ? {} : { startedAt: job.startedAt }),
           ...(job.latestActivity ? { latestActivity: job.latestActivity } : {}),
           ...(job.activityCount === undefined ? {} : { activityCount: job.activityCount }),
+          ...(job.status === "failed" && job.errorMessage
+            ? { errorMessage: job.errorMessage }
+            : {}),
         };
       }),
     );

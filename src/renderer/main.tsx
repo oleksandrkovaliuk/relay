@@ -18,8 +18,13 @@ if (!rootElement) throw new Error("Missing #app root element.");
 if (!convexUrl) throw new Error("Missing VITE_CONVEX_URL. Run `pnpm dev` to configure Convex.");
 
 const convex = new ConvexReactClient(convexUrl);
-/** Long enough to cover moving between pages, short enough not to hold sockets. */
-const CACHE_EXPIRATION_MILLISECONDS = 5 * 60 * 1_000;
+/**
+ * Long enough to cover moving between pages, short enough not to hold sockets.
+ * Every cached query stays subscribed and recomputes on the server whenever
+ * anything it reads changes, so five minutes of that for a page nobody is
+ * looking at was paid for in CPU on both ends.
+ */
+const CACHE_EXPIRATION_MILLISECONDS = 90 * 1_000;
 
 createRoot(rootElement).render(
   <StrictMode>

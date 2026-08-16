@@ -6,6 +6,8 @@ import { loadSubmissionDetail } from "./submissionLib";
 import { loadSubmissionFeedback, submissionFeedbackValueValidator } from "./feedback";
 
 const MAX_FEED_ITEMS = 50;
+/** The homework page only needs the handful a teacher could actually act on. */
+const MAX_IN_PROGRESS_ITEMS = 8;
 const MAX_QUESTIONS = 40;
 const STRUGGLE_ACCURACY_THRESHOLD = 0.5;
 
@@ -85,6 +87,62 @@ export const inbox = query({
           strugglingSkills: [...strugglingSkills].slice(0, 4),
           ...(submission.aiSummary ? { aiSummary: submission.aiSummary } : {}),
           ...(feedback ? { feedback } : {}),
+        };
+      }),
+    );
+  },
+});
+
+/**
+ * Just the attempts a student has open, and how far in they are. The full inbox
+ * reads every question and answer of the last fifty submissions to work out
+ * struggling skills — far too much to subscribe to from a page that only wants
+ * to say "on step 3 of 8".
+ */
+export const inProgress = query({
+  args: {},
+  returns: v.array(
+    v.object({
+      submissionId: v.id("submissions"),
+      assignmentId: v.id("assignments"),
+      assignmentTitle: v.string(),
+      studentName: v.string(),
+      startedAt: v.number(),
+      answeredCount: v.number(),
+      questionCount: v.number(),
+      activeMinutes: v.number(),
+    }),
+  ),
+  handler: async (ctx) => {
+    const submissions = await ctx.db
+      .query("submissions")
+      .withIndex("by_status_and_submittedAt", (q) => q.eq("status", "in_progress"))
+      .order("desc")
+      .take(MAX_IN_PROGRESS_ITEMS);
+
+    return Promise.all(
+      submissions.map(async (submission) => {
+        const assignment = await ctx.db.get("assignments", submission.assignmentId);
+        const questions = await ctx.db
+          .query("assignmentQuestions")
+          .withIndex("by_assignmentId_and_order", (q) =>
+            q.eq("assignmentId", submission.assignmentId),
+          )
+          .take(MAX_QUESTIONS);
+        const answers = await ctx.db
+          .query("answers")
+          .withIndex("by_submissionId", (q) => q.eq("submissionId", submission._id))
+          .take(MAX_QUESTIONS);
+
+        return {
+          submissionId: submission._id,
+          assignmentId: submission.assignmentId,
+          assignmentTitle: assignment?.title ?? "Homework",
+          studentName: submission.studentName,
+          startedAt: submission.startedAt,
+          answeredCount: answers.length,
+          questionCount: questions.length,
+          activeMinutes: Math.round((submission.activeMs ?? 0) / 60_000),
         };
       }),
     );

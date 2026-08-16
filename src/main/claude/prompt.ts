@@ -3,6 +3,7 @@ import type {
   GenerateHomeworkInput,
   RewriteHomeworkQuestionInput,
   SummarizeSubmissionInput,
+  TeachingStyle,
 } from "@/shared/claude";
 
 const UNTRUSTED_SOURCE_RULE =
@@ -14,10 +15,12 @@ const QUESTION_FORMAT_RULES = [
   "- fill_blank: `text` containing one `{{1}}`, `{{2}}`, … marker per blank in order, and one `blanks` entry per marker listing every acceptable answer (include contractions and common spellings). Set a blank's optional `hint` to the dictionary form the student must reshape — `go` for a gap whose answer is `goes`, `be` for `was`. The player shows the hint in brackets next to the gap, so never write the bracketed word into `text` yourself.",
   "- matching: 3-8 `pairs` of `left` (prompt) and `right` (its match). The player shuffles the right column.",
   "- select_cloze: a continuous passage in `text` with one `{{1}}`, `{{2}}`, … marker per gap and 3-15 `gaps`, each holding 2-4 `options` and `correctOption`. The student picks from a dropdown at every gap. Options must be genuinely competing forms, not one right answer beside obvious nonsense. Add a one-clause `explanation` to the gaps where the reason is not obvious — under 120 characters, shown only when that gap was answered wrongly.",
-  "- error_fix: one sentence split into `before`, the wrong phrase in `flagged`, and `after`. The student retypes only the corrected phrase into `acceptedAnswers`. Use the student's own real mistakes verbatim where the evidence provides them. `flagged` must be exactly the wrong phrase, never the whole sentence.",
+  "- error_fix: one sentence split into `before`, the wrong phrase in `flagged`, and `after`. Concatenating the three in that order must reproduce the whole sentence, punctuation and spacing included, so keep the words either side of the mistake in `before` and `after` rather than dropping them. `flagged` must be exactly the wrong phrase, never the whole sentence. The student retypes only the corrected phrase into `acceptedAnswers`. Use the student's own real mistakes verbatim where the evidence provides them.",
+  "- proofread: a connected passage of 40-90 words in `text` with one `{{1}}`, `{{2}}`, … marker per mistake and 3-6 `errors` in the same order. Each entry holds the wrong form in `flagged` — the words the student sees struck through, which must read naturally where the marker sits — and every correct rewrite in `acceptedAnswers`. Everything else in the passage must already be correct.",
   "- open_response: use for `short_answer` and `rewrite`. Add `expectedAnswer` as a model answer for the teacher; it is never auto-graded or shown during the task.",
   "Never put the blank markers, answer letters, or correct answers in `prompt` or `instructions` — students read those fields.",
-  "Conversely, `prompt` must contain every sentence, pair, or item the student has to work on. An open_response question that says 'rewrite each pair' without listing the pairs in `prompt` is unusable, because `expectedAnswer` is teacher-only.",
+  "An open_response `prompt` must contain every sentence, pair, or item the student has to work on: one that says 'rewrite each pair' without listing the pairs is unusable, because `expectedAnswer` is teacher-only.",
+  "Every other widget already puts its own material on screen, so `prompt` must not repeat it. An error_fix `prompt` that quotes the sentence, or a fill_blank `prompt` that restates the text, shows the student the same thing twice — write one short line of direction instead, like `Correct the highlighted phrase.`",
 ].join("\n");
 
 /**
@@ -45,6 +48,19 @@ const WORKSHEET_STRUCTURE_RULES = [
   "- Write every `explanation` as at most two short sentences, read beside an answer that has already been marked: one saying what the tempting wrong form would have meant, one saying why the right form is right. No preamble, no restating the task, and never `Correct answer: X` — the answer is already shown next to it. Aim for under 240 characters; a paragraph is not read.",
 ].join("\n");
 
+/**
+ * Three one-sentence corrections in a row all read as "Correct the highlighted
+ * phrase." in the teacher's outline and in the student's wizard. One passage
+ * carrying the same three mistakes is better practice and one step instead of
+ * three, so error correction is grouped by default.
+ */
+const VARIETY_RULES = [
+  "No two activities may repeat each other:",
+  "- At most one error_fix in the whole set. When several corrections are worth practising, write one proofread passage that carries them all instead of a run of one-sentence fixes.",
+  "- Never give two activities the same `prompt`. The teacher picks activities from a list of their prompts, and a repeated line makes them indistinguishable. Name what each one is about — `Fix the four verb forms in this travel diary`, not `Correct the highlighted phrase`.",
+  "- Vary the widget from one activity to the next wherever the teaching allows it.",
+].join("\n");
+
 const DIFFICULTY_RULES = [
   "Make the set genuinely demanding rather than a warm-up:",
   "- Prefer passage-level work over isolated sentences. A select_cloze or multi-gap fill_blank built from one connected text tests far more than six unrelated one-liners.",
@@ -53,6 +69,38 @@ const DIFFICULTY_RULES = [
   "- Use fill_blank `hint` for form-production gaps so the student must derive the inflection rather than recognise it.",
   "- At least one activity should require the student to produce connected language, not just select or fill.",
 ].join("\n");
+
+/**
+ * The teacher, as far as Relay knows them. A run has no memory of the last one,
+ * so the standing preferences — the rules they wrote, the corrections they keep
+ * making, the sets they were happy to send — are restated every time. Their own
+ * words come first: everything else is inference from what they accepted.
+ */
+function describeTeachingStyle(style: TeachingStyle | undefined) {
+  if (!style) return null;
+  const sections: string[] = [];
+  if (style.styleNotes.trim()) {
+    sections.push(`This teacher's standing rules, in their words:\n${style.styleNotes.trim()}`);
+  }
+  if (style.editInstructions.length > 0) {
+    sections.push(
+      [
+        "Changes they have asked for on previous generated activities. Write so that none of them is needed again:",
+        ...style.editInstructions.map((instruction) => `- ${instruction}`),
+      ].join("\n"),
+    );
+  }
+  if (style.keptExamples.length > 0) {
+    sections.push(
+      [
+        "Activity prompts from sets they published unchanged — match this voice and length:",
+        ...style.keptExamples.map((example) => `- ${example}`),
+      ].join("\n"),
+    );
+  }
+  if (sections.length === 0) return null;
+  return sections.join("\n\n");
+}
 
 function describeSource(input: GenerateHomeworkInput) {
   if (!input.miroBoardUrl) return "Use the teacher's notes and student context below as the source.";
@@ -100,6 +148,8 @@ export function buildHomeworkPrompt(input: GenerateHomeworkInput) {
     `Difficulty: ${input.difficulty}. Target completion time: ${input.durationMinutes} minutes.`,
     `Write about one activity per four minutes of that target — roughly ${describeActivityBudget(input.durationMinutes)}. Fewer, denser activities beat a long list, and every extra one costs the teacher waiting time.`,
     describeActivityTypes(input),
+    describeTeachingStyle(input.teachingStyle),
+    VARIETY_RULES,
     DIFFICULTY_RULES,
     QUESTION_FORMAT_RULES,
     WORKSHEET_STRUCTURE_RULES,
@@ -122,10 +172,11 @@ export function buildQuestionRewritePrompt(input: RewriteHomeworkQuestionInput) 
     input.neighboringPrompts.length > 0
       ? `Nearby activity prompts, supplied only to avoid duplication:\n${input.neighboringPrompts.join("\n---\n")}`
       : null,
+    describeTeachingStyle(input.teachingStyle),
     QUESTION_FORMAT_RULES,
     "Keep the current question `id`. Preserve what already works, but fully update every dependent field required by the teacher's request, including answer keys, distractors, skill tags, difficulty, points, and explanation when relevant.",
     "The rewritten activity must stand alone and remain consistent with the homework's topic and level.",
-    "Return only the structured question object.",
+    "Return the finished activity as the `question` field of the result object. `question.content` is the widget's own data — do not nest the whole activity inside it.",
   ]
     .filter((section) => section !== null)
     .join("\n\n");

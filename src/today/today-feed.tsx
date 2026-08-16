@@ -1,6 +1,6 @@
 import { CrownIcon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { Link } from "@tanstack/react-router";
+import { Link, useNavigate } from "@tanstack/react-router";
 import { useMutation } from "convex/react";
 import { useQuery } from "convex-helpers/react/cache";
 import { AlertTriangle, ArrowRight, Clock3, Eye, Inbox, Star } from "lucide-react";
@@ -11,13 +11,17 @@ import type { Id } from "@convex/_generated/dataModel";
 import { ScoreBar } from "@/components/score-bar";
 import { SectionHeading } from "@/components/section-heading";
 import { Button } from "@/components/ui/button";
+import { ListSkeleton } from "@/components/list-skeleton";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Spinner } from "@/components/ui/spinner";
 import {
+  cn,
   formatRelativeTime,
   humanizeIdentifier,
   initials,
   isSameDay,
 } from "@/lib/utils";
+import { readClaudeModel } from "@/claude/claude-model-preference";
 import { getDesktopBridge } from "@/claude/desktop-bridge";
 import type { InsightSection } from "@/insights/insight-filter";
 import {
@@ -25,7 +29,6 @@ import {
   InsightHighlightsEmpty,
   InsightHighlightsSkeleton,
 } from "@/insights/insight-highlights";
-import { SubmissionDetail } from "@/submissions/submission-detail";
 import { HomeworkGlyph } from "@/homework/homework-glyph";
 
 type FeedItem = NonNullable<ReturnType<typeof useFeed>>[number];
@@ -67,7 +70,10 @@ function useFeed() {
 
 export function TodayFeed({ now }: { now: number }) {
   const feed = useFeed();
-  const [openSubmissionId, setOpenSubmissionId] = useState<Id<"submissions"> | null>(null);
+  const navigate = useNavigate();
+  /** Review is a place, not a panel: one surface, linkable, with room to read. */
+  const openSubmission = (submissionId: Id<"submissions">) =>
+    void navigate({ to: "/submissions/$submissionId", params: { submissionId } });
 
   if (feed === undefined) return <LoadingRow />;
 
@@ -93,39 +99,27 @@ export function TodayFeed({ now }: { now: number }) {
 
   return (
     <div className="mx-auto grid w-full max-w-[1480px] gap-7 px-6 py-6 lg:px-10 xl:gap-8 xl:py-8">
-      <section className="grid gap-3" aria-labelledby="overview-heading">
-        <SectionHeading id="overview-heading" title="Today at a glance" />
-        <div className={PANEL_CLASS}>
-          <div className="grid grid-cols-2 xl:grid-cols-4" aria-label="Today at a glance">
-            <StatTile
-              className="border-b border-r border-border/80 xl:border-b-0"
-              label="Completed today"
-              value={submittedToday.length}
-              detail={pluralize(submittedToday.length, "task")}
-            />
-            <StatTile
-              className="border-b border-border/80 xl:border-b-0 xl:border-r"
-              label="Active students"
-              value={activeStudentCount}
-              detail="today"
-            />
-            <StatTile
-              className="border-r border-border/80"
-              label="Pending review"
-              value={pendingReviewCount}
-              detail="written answers"
-            />
-            <StatTile
-              label="Completion momentum"
-              value={completionMomentum}
-              suffix="%"
-              detail={`${submittedToday.length}/${todayItems.length} tasks`}
-            />
-          </div>
-        </div>
-      </section>
+      {/* One quiet line, not four tiles: on a normal morning three of them read
+          zero, and counting zeroes is not the reason to open the app. */}
+      <p className="-mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[12.5px] text-muted-foreground">
+        <span className="numeric">
+          {submittedToday.length} submitted today
+        </span>
+        <span aria-hidden>·</span>
+        <span className="numeric">{activeStudentCount} active</span>
+        <span aria-hidden>·</span>
+        <span className={cn("numeric", pendingReviewCount > 0 && "font-medium text-foreground")}>
+          {pendingReviewCount} to grade
+        </span>
+        {todayItems.length > 0 ? (
+          <>
+            <span aria-hidden>·</span>
+            <span className="numeric">{completionMomentum}% finished today</span>
+          </>
+        ) : null}
+      </p>
 
-      <InsightsPreview now={now} onOpenSubmission={setOpenSubmissionId} />
+      <InsightsPreview now={now} onOpenSubmission={openSubmission} />
 
       <section className="grid gap-3" aria-labelledby="student-signals-heading">
         <SectionHeading
@@ -136,11 +130,11 @@ export function TodayFeed({ now }: { now: number }) {
         <div className="grid gap-3 xl:grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)]">
           <MomentumHighlight
             student={highlightedStudent}
-            onOpenSubmission={setOpenSubmissionId}
+            onOpenSubmission={openSubmission}
           />
           <StudentAttentionList
             students={studentsNeedingAttention}
-            onOpenSubmission={setOpenSubmissionId}
+            onOpenSubmission={openSubmission}
           />
         </div>
       </section>
@@ -171,19 +165,13 @@ export function TodayFeed({ now }: { now: number }) {
                 key={item.submissionId}
                 item={item}
                 now={now}
-                onOpen={() => setOpenSubmissionId(item.submissionId)}
+                onOpen={() => openSubmission(item.submissionId)}
               />
             ))}
           </div>
         )}
       </section>
 
-      {openSubmissionId ? (
-        <SubmissionDetail
-          submissionId={openSubmissionId}
-          onClose={() => setOpenSubmissionId(null)}
-        />
-      ) : null}
     </div>
   );
 }
@@ -205,7 +193,8 @@ function InsightsPreview({
     <section className="grid gap-3" aria-labelledby="insights-preview-heading">
       <SectionHeading
         id="insights-preview-heading"
-        title="What stands out"
+        title="Do next"
+        description="What is worth your time right now, and the way straight to it."
         action={<ViewAllInsights section="highlights" label="All insights" />}
       />
       {highlights === undefined ? (
@@ -519,41 +508,6 @@ function StudentAttentionList({
   );
 }
 
-function StatTile({
-  className,
-  label,
-  value,
-  suffix,
-  detail,
-}: {
-  className?: string;
-  label: string;
-  value: number;
-  suffix?: string;
-  detail: string;
-}) {
-  return (
-    <div className={`min-w-0 px-5 py-5 sm:px-6 xl:py-6 ${className ?? ""}`}>
-      <p className="truncate text-[12px] font-medium text-secondary-foreground xl:text-[13px]">
-        {label}
-      </p>
-      <div className="mt-2.5 flex items-end justify-between gap-3">
-        <p className="text-[29px] font-semibold leading-none tracking-[-0.04em] numeric xl:text-[33px]">
-          {value}
-          {suffix ? (
-            <span className="ml-0.5 text-[16px] text-secondary-foreground xl:text-[18px]">
-              {suffix}
-            </span>
-          ) : null}
-        </p>
-        <span className="truncate pb-0.5 text-[11px] text-secondary-foreground xl:text-[12px]">
-          {detail}
-        </span>
-      </div>
-    </div>
-  );
-}
-
 function FeedCard({
   item,
   now,
@@ -715,6 +669,7 @@ function SummaryBlock({ item }: { item: FeedItem }) {
     setError(null);
     try {
       const result = await bridge.summarizeSubmission({
+        model: readClaudeModel(),
         requestId: crypto.randomUUID(),
         ...summaryInput,
       });
@@ -745,10 +700,51 @@ function SummaryBlock({ item }: { item: FeedItem }) {
   );
 }
 
+/**
+ * The same page, drawn empty: one summary line, three findings, then the two
+ * lower panels. A spinner in the middle of a blank page tells the reader
+ * nothing about what is coming, and the layout jumps when it arrives.
+ */
 function LoadingRow() {
   return (
-    <div className="mx-auto flex w-full max-w-[1480px] items-center gap-2 px-6 py-6 text-[13px] text-muted-foreground lg:px-10 xl:py-8 xl:text-[14px]">
-      <Spinner /> Loading your day…
+    <div
+      role="status"
+      aria-busy="true"
+      aria-label="Loading your day"
+      className="mx-auto grid w-full max-w-[1480px] gap-7 px-6 py-6 lg:px-10 xl:gap-8 xl:py-8"
+    >
+      <Skeleton className="h-3 w-64" />
+
+      <section className="grid gap-3">
+        <div>
+          <Skeleton className="h-4 w-24" />
+          <Skeleton className="mt-2 h-3 w-80" />
+        </div>
+        <div className="grid gap-2.5">
+          {["first", "second", "third"].map((key) => (
+            <div key={key} className="rounded-xl border border-border bg-card px-4 py-3.5">
+              <div className="flex items-center justify-between gap-3">
+                <Skeleton className="h-3.5 w-56" />
+                <Skeleton className="h-3.5 w-8" />
+              </div>
+              <Skeleton className="mt-2.5 h-3 w-full max-w-[30rem]" />
+              <Skeleton className="mt-3 h-3 w-28" />
+            </div>
+          ))}
+        </div>
+      </section>
+
+      <section className="grid gap-3">
+        <Skeleton className="h-4 w-32" />
+        <div className="grid gap-3 xl:grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)]">
+          <div className="panel px-5 py-5">
+            <Skeleton className="h-3.5 w-40" />
+            <Skeleton className="mt-3 h-3 w-full" />
+            <Skeleton className="mt-2 h-3 w-2/3" />
+          </div>
+          <ListSkeleton rows={3} lines={1} label="Loading students who need attention" />
+        </div>
+      </section>
     </div>
   );
 }

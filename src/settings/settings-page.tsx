@@ -1,12 +1,14 @@
 import type { ReactNode } from "react";
 
 import { ClaudeAccountsSection } from "@/claude/claude-accounts-section";
+import { ClaudeModelSection } from "@/claude/claude-model-section";
 import { CLAUDE_INSTALL_GUIDE_URL } from "@/claude/claude-setup-dialog";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
 import { cn } from "@/lib/utils";
 import type { ClaudeAvailability } from "@/shared/claude";
 import { AppearanceSection } from "./appearance-section";
+import { TeachingStyleSection } from "./teaching-style-section";
 
 export function SettingsPage({
   availability,
@@ -22,6 +24,20 @@ export function SettingsPage({
         description="Applies to this Mac only."
       >
         <AppearanceSection />
+      </SettingsSection>
+
+      <SettingsSection
+        title="How you like homework written"
+        description="Your standing rules, sent with every generation and every activity edit. Claude starts each run with no memory of the last one, so this is what carries over."
+      >
+        <TeachingStyleSection />
+      </SettingsSection>
+
+      <SettingsSection
+        title="Model"
+        description="What every generation, edit and summary runs on. Sonnet is the default: a whole set is one long answer, and the wait is mostly the model."
+      >
+        <ClaudeModelSection />
       </SettingsSection>
 
       <SettingsSection

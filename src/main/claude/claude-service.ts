@@ -20,9 +20,11 @@ import {
   claudeGenerationResultSchema,
   claudeQuestionRewriteResultSchema,
   claudeSummaryResultSchema,
+  DEFAULT_CLAUDE_MODEL,
   generateHomeworkInputSchema,
   homeworkDraftSchema,
   homeworkQuestionSchema,
+  questionRewriteOutputSchema,
   rewriteHomeworkQuestionInputSchema,
   submissionSummarySchema,
   summarizeSubmissionInputSchema,
@@ -30,6 +32,7 @@ import {
   type ClaudeAvailability,
   type ClaudeGenerationResult,
   type ClaudeRuntimeEvent,
+  type ClaudeModel,
   type ClaudeSummaryResult,
   type GenerateHomeworkInput,
   type RewriteHomeworkQuestionInput,
@@ -59,7 +62,9 @@ const MIRO_MCP_URL = "https://mcp.miro.com";
 const GENERATION_MAX_TURNS = 8;
 const MIRO_GENERATION_MAX_TURNS = 16;
 const SUMMARY_MAX_TURNS = 4;
-const QUESTION_REWRITE_MAX_TURNS = 6;
+/** As generous as a generation: a rewrite that has to correct itself once must
+ *  not run out of turns halfway and hand the teacher nothing. */
+const QUESTION_REWRITE_MAX_TURNS = 10;
 
 interface ActiveClaudeRequest {
   abortController: AbortController;
@@ -94,7 +99,21 @@ function errorMessage(error: unknown) {
 
 function resultErrorMessage(message: SDKResultMessage) {
   if (message.subtype === "success") return null;
-  return message.errors.join("\n") || `Claude stopped with ${message.subtype}.`;
+  // `errors` is not present on every runtime's result, and reading it blindly
+  // replaced a clear "ran out of turns" with a TypeError.
+  const errors = Array.isArray(message.errors) ? message.errors : [];
+  return errors.join("\n") || `Claude stopped with ${message.subtype}.`;
+}
+
+/**
+ * The rewrite asks for `{ question }`; a model that answers with the bare
+ * question is still understood, so a good answer in the wrong wrapper is never
+ * thrown away.
+ */
+function readRewrittenQuestion(structuredOutput: unknown) {
+  const enveloped = questionRewriteOutputSchema.safeParse(structuredOutput);
+  if (enveloped.success) return enveloped.data.question;
+  return homeworkQuestionSchema.parse(structuredOutput);
 }
 
 function textDelta(message: SDKMessage) {
@@ -201,7 +220,7 @@ export class ClaudeService {
     const completion = await this.runStructuredRequest(
       input.requestId,
       buildSummaryPrompt(input),
-      this.summaryQueryOptions(),
+      this.summaryQueryOptions(input),
       emitEvent,
     );
     return claudeSummaryResultSchema.parse({
@@ -218,12 +237,12 @@ export class ClaudeService {
     const completion = await this.runStructuredRequest(
       input.requestId,
       buildQuestionRewritePrompt(input),
-      this.questionRewriteQueryOptions(),
+      this.questionRewriteQueryOptions(input),
       emitEvent,
     );
     return claudeQuestionRewriteResultSchema.parse({
       requestId: input.requestId,
-      question: homeworkQuestionSchema.parse(completion.structuredOutput),
+      question: readRewrittenQuestion(completion.structuredOutput),
     });
   }
 
@@ -235,7 +254,7 @@ export class ClaudeService {
     const completion = await this.runStructuredRequest(
       input.requestId,
       buildBoardAttachPrompt(input),
-      this.boardAttachQueryOptions(input.requestId, emitEvent),
+      this.boardAttachQueryOptions(input, emitEvent),
       emitEvent,
     );
     return claudeBoardAttachmentResultSchema.parse({
@@ -246,18 +265,18 @@ export class ClaudeService {
 
   /** Reads the board and adds one card, through the teacher's own Miro MCP. */
   private boardAttachQueryOptions(
-    requestId: string,
+    input: AttachHomeworkToBoardInput,
     emitEvent: RuntimeEventListener,
   ): ClaudeQueryOptions {
     return {
-      ...this.baseQueryOptions(),
+      ...this.baseQueryOptions(input.model),
       canUseTool: allowBoardAttachTools,
       maxTurns: MIRO_GENERATION_MAX_TURNS,
       outputFormat: { type: "json_schema", schema: createBoardAttachOutputSchema() },
       tools: ["mcp__miro__*"],
       mcpServers: { miro: { type: "http" as const, url: MIRO_MCP_URL } },
       onElicitation: (request: ElicitationRequest) =>
-        this.handleElicitation(requestId, request, emitEvent),
+        this.handleElicitation(input.requestId, request, emitEvent),
     };
   }
 
@@ -296,6 +315,17 @@ export class ClaudeService {
     }
   }
 
+  /**
+   * Stops every run this service started. A generation is a child `claude`
+   * process holding a few hundred megabytes; quitting the app without this left
+   * them alive, still working on homework nobody would ever read.
+   */
+  async cancelAllRequests() {
+    const requestIds = [...this.activeRequests.keys()];
+    await Promise.all(requestIds.map((requestId) => this.cancelRequest(requestId)));
+    return requestIds.length;
+  }
+
   async cancelRequest(requestId: string) {
     const activeRequest = this.activeRequests.get(requestId);
     if (!activeRequest) return false;
@@ -306,9 +336,15 @@ export class ClaudeService {
     return true;
   }
 
-  private baseQueryOptions(): ClaudeQueryOptions {
+  /**
+   * Every request names its model rather than inheriting the CLI's default: the
+   * teacher chose it, and a generation on Opus takes minutes where Sonnet takes
+   * seconds.
+   */
+  private baseQueryOptions(model: ClaudeModel | undefined): ClaudeQueryOptions {
     return {
       cwd: this.workingDirectory,
+      model: model ?? DEFAULT_CLAUDE_MODEL,
       env: this.environment,
       includePartialMessages: true,
       pathToClaudeCodeExecutable: this.binaryPath ?? undefined,
@@ -329,7 +365,7 @@ export class ClaudeService {
   ): ClaudeQueryOptions {
     const hasMiroSource = Boolean(input.miroBoardUrl);
     return {
-      ...this.baseQueryOptions(),
+      ...this.baseQueryOptions(input.model),
       canUseTool: allowReadOnlyMiroTools,
       maxTurns: hasMiroSource ? MIRO_GENERATION_MAX_TURNS : GENERATION_MAX_TURNS,
       outputFormat: { type: "json_schema", schema: createHomeworkOutputSchema() },
@@ -344,18 +380,20 @@ export class ClaudeService {
     };
   }
 
-  private summaryQueryOptions(): ClaudeQueryOptions {
+  private summaryQueryOptions(input: SummarizeSubmissionInput): ClaudeQueryOptions {
     return {
-      ...this.baseQueryOptions(),
+      ...this.baseQueryOptions(input.model),
       maxTurns: SUMMARY_MAX_TURNS,
       outputFormat: { type: "json_schema", schema: createSummaryOutputSchema() },
       tools: [],
     };
   }
 
-  private questionRewriteQueryOptions(): ClaudeQueryOptions {
+  private questionRewriteQueryOptions(
+    input: RewriteHomeworkQuestionInput,
+  ): ClaudeQueryOptions {
     return {
-      ...this.baseQueryOptions(),
+      ...this.baseQueryOptions(input.model),
       maxTurns: QUESTION_REWRITE_MAX_TURNS,
       outputFormat: { type: "json_schema", schema: createQuestionRewriteOutputSchema() },
       tools: [],
@@ -387,7 +425,9 @@ export class ClaudeService {
     runtime: Query,
     emitEvent: RuntimeEventListener,
   ) {
+    let hasTimedOut = false;
     const timeout = setTimeout(() => {
+      hasTimedOut = true;
       const request = this.activeRequests.get(requestId);
       request?.abortController.abort();
       request?.runtime.close();
@@ -421,7 +461,18 @@ export class ClaudeService {
       clearTimeout(timeout);
     }
 
-    throw new Error("Claude Code ended without returning structured output.");
+    /**
+     * The stream ended before any result. That is the local CLI stopping — a
+     * crash, a signed-out account, a usage limit — so it says so rather than
+     * blaming the shape of the answer, which is what "no structured output"
+     * sounded like.
+     */
+    if (hasTimedOut) {
+      throw new Error("Claude took too long and the request was stopped. Try again.");
+    }
+    throw new Error(
+      "Claude Code stopped before it answered. Check `claude auth status` and any usage limit, then try again.",
+    );
   }
 
   private async readVersion() {

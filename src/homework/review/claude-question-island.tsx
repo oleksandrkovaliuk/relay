@@ -6,9 +6,17 @@ import {
   useReducedMotion,
   type Transition,
 } from "motion/react";
-import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useId,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 
-import { useMutation } from "convex/react";
+import { useConvex, useMutation } from "convex/react";
 import { useQuery } from "convex-helpers/react/cache";
 
 import { api } from "@convex/_generated/api";
@@ -16,6 +24,7 @@ import type { Id } from "@convex/_generated/dataModel";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { requireDesktopBridge } from "@/claude/desktop-bridge";
+import { useClaudeModel } from "@/claude/use-claude-model";
 import { useClaudeProgress } from "@/claude/use-claude-progress";
 import { homeworkQuestionSchema, type HomeworkQuestion } from "@/shared/claude";
 
@@ -101,9 +110,20 @@ function useContentSize() {
      */
     const slotWidth = Math.floor(slot.getBoundingClientRect().width);
     content.style.maxWidth = `${slotWidth}px`;
-    setAvailableWidth(slotWidth);
+    setAvailableWidth((current) => (current === slotWidth ? current : slotWidth));
+
+    /**
+     * Re-measuring the same box must be a no-op, right down to the object
+     * identity. This runs from a layout effect on every commit, so returning a
+     * fresh `{width, height}` with identical numbers rendered again, measured
+     * again, and hit React's update-depth limit instead of settling.
+     */
     const rect = target.getBoundingClientRect();
-    setSize({ width: Math.ceil(rect.width), height: Math.ceil(rect.height) });
+    const width = Math.ceil(rect.width);
+    const height = Math.ceil(rect.height);
+    setSize((current) =>
+      current.width === width && current.height === height ? current : { width, height },
+    );
   }, []);
 
   useEffect(function trackContentSize() {
@@ -157,19 +177,22 @@ export function ClaudeQuestionIsland({
   const [liveRequestId, setLiveRequestId] = useState<string | null>(null);
   /** What Claude is doing right now, so a wait reads as work rather than a hang. */
   const step = useClaudeProgress(liveRequestId);
+  const { model } = useClaudeModel();
+  const convex = useConvex();
 
-  /**
-   * Measured before the browser paints the new state. A ResizeObserver only
-   * reports a change after that paint, which left the box sitting at the previous
-   * size for a few frames and then jumping — the stutter this replaces.
-   */
   /**
    * The edit lives in `aiJobs`, so leaving the page or re-rendering does not lose
    * it: an in-flight request keeps running in the desktop process and writes its
    * result to the job, and this island reads it back wherever it is mounted.
    */
   const job = rewrites?.find((candidate) => candidate.questionId === questionId) ?? null;
-  const persistedSuggestion = parseSuggestion(job?.resultSnapshot ?? null);
+  /**
+   * Parsed once per snapshot, not once per render. `measureArrivingState` below
+   * depends on the suggestion, and a freshly parsed object every render meant
+   * that effect never stopped firing.
+   */
+  const resultSnapshot = job?.resultSnapshot ?? null;
+  const persistedSuggestion = useMemo(() => parseSuggestion(resultSnapshot), [resultSnapshot]);
   const isJobRunning = job?.status === "pending" || job?.status === "running";
   const effectiveState: IslandState =
     state !== "idle"
@@ -236,8 +259,13 @@ export function ClaudeQuestionIsland({
     await markRewriteRunning({ aiJobId }).catch(() => undefined);
 
     try {
+      const teachingStyle = await convex
+        .query(api.teaching.styleProfile, {})
+        .catch(() => null);
       const result = await requireDesktopBridge().rewriteHomeworkQuestion({
         requestId,
+        model,
+        ...(teachingStyle ? { teachingStyle } : {}),
         homeworkTitle,
         homeworkSummary,
         teacherInstruction,

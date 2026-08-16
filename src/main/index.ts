@@ -116,6 +116,12 @@ app.whenReady().then(() => {
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });
+
+  // A quit must take the Claude child processes with it, or they keep running —
+  // and keep their memory — with nothing left to receive the answer.
+  app.on("before-quit", () => {
+    void claudeService.cancelAllRequests().catch(() => undefined);
+  });
 });
 
 app.on("window-all-closed", () => {

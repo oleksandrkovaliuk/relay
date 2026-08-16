@@ -1,0 +1,1 @@
+../../.agents/hooks/block-dangerous-git.sh

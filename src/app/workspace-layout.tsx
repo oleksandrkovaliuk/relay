@@ -8,6 +8,7 @@ import {
   useSharedClaudeAvailability,
 } from "@/claude/claude-availability-context";
 import { ClaudeSetupDialog } from "@/claude/claude-setup-dialog";
+import { GenerationRunsProvider } from "@/claude/generation-runs";
 import { useAutomaticSummaries } from "@/claude/use-automatic-summaries";
 import { useClaudeConnections } from "@/claude/use-claude-connections";
 import { rememberLastRoute } from "@/lib/last-route";
@@ -22,7 +23,11 @@ const CLAUDE_ONBOARDING_STORAGE_KEY = "erm:claude-onboarding-complete:v1";
 export function WorkspaceLayout() {
   return (
     <ClaudeAvailabilityProvider>
-      <WorkspaceChrome />
+      {/* Above the pages on purpose: a generation must keep reporting after the
+          teacher leaves the builder it was started from. */}
+      <GenerationRunsProvider>
+        <WorkspaceChrome />
+      </GenerationRunsProvider>
     </ClaudeAvailabilityProvider>
   );
 }

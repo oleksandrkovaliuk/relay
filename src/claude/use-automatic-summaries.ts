@@ -4,6 +4,7 @@ import { useEffect, useRef } from "react";
 
 import { api } from "@convex/_generated/api";
 import type { Id } from "@convex/_generated/dataModel";
+import { readClaudeModel } from "@/claude/claude-model-preference";
 import { getDesktopBridge } from "@/claude/desktop-bridge";
 
 /**
@@ -45,6 +46,7 @@ export function useAutomaticSummaries({ isClaudeReady }: { isClaudeReady: boolea
         });
         if (!summaryInput) return;
         const result = await bridge.summarizeSubmission({
+          model: readClaudeModel(),
           requestId: crypto.randomUUID(),
           ...summaryInput,
         });

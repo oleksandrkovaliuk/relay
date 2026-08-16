@@ -101,6 +101,18 @@ export function QuestionWidget({
       />
     );
   }
+  if (content.kind === "proofread" && response.kind === "blanks") {
+    return (
+      <ProofreadWidget
+        text={content.text}
+        errors={content.errors}
+        values={response.values}
+        onChange={(values) => onChange({ kind: "blanks", values })}
+        isReadOnly={isReadOnly}
+        marking={marking}
+      />
+    );
+  }
   if (response.kind === "text") {
     return (
       <OpenResponseWidget
@@ -169,10 +181,84 @@ function ErrorFixWidget({
   );
 }
 
-/** The wrong phrase, marked the way a teacher's pen would mark it. */
-export function FlaggedPhrase({ children }: { children: string }) {
+/**
+ * A passage the student proofreads. Every mistake stays where it was written,
+ * struck through, with the correction typed straight after it — so the fix is
+ * read in the sentence it belongs to rather than in a list of loose answers.
+ */
+function ProofreadWidget({
+  text,
+  errors,
+  values,
+  onChange,
+  isReadOnly,
+  marking,
+}: {
+  text: string;
+  errors: { flagged: string }[];
+  values: string[];
+  onChange: (values: string[]) => void;
+  isReadOnly?: boolean;
+  marking?: WidgetMarking;
+}) {
+  const segments = splitBlankText(text);
+
+  function updateCorrection(errorIndex: number, value: string) {
+    onChange(values.map((current, index) => (index === errorIndex ? value : current)));
+  }
+
   return (
-    <span className="mx-0.5 whitespace-nowrap rounded-[3px] border-b-2 border-destructive bg-critical-soft px-1 font-mono text-[0.94em] text-destructive">
+    <div className="grid gap-4">
+      <p className="text-base leading-[2.6] text-ink lg:text-[17px]">
+        {segments.map((segment, index) => {
+          if (segment.blankIndex === null) return <span key={index}>{segment.text}</span>;
+          const errorIndex = segment.blankIndex;
+          const flagged = errors[errorIndex]?.flagged;
+          if (!flagged) return null;
+          return (
+            <span key={index} className="whitespace-nowrap">
+              <FlaggedPhrase isStruckThrough>{flagged}</FlaggedPhrase>
+              <BlankInput
+                index={errorIndex}
+                value={values[errorIndex] ?? ""}
+                onChange={(value) => updateCorrection(errorIndex, value)}
+                isReadOnly={isReadOnly}
+                mark={marking?.parts[errorIndex]}
+              />
+              <ExpectedInline mark={marking?.parts[errorIndex]} />
+            </span>
+          );
+        })}
+      </p>
+      {marking ? null : (
+        // The count, not a restatement of the task: the instructions above
+        // already say what to do, and a passage makes it easy to miss one.
+        <p className="text-[12.5px] text-ink-secondary numeric">
+          {errors.length} {errors.length === 1 ? "mistake" : "mistakes"} to fix.
+        </p>
+      )}
+    </div>
+  );
+}
+
+/** The wrong phrase, marked the way a teacher's pen would mark it. */
+export function FlaggedPhrase({
+  children,
+  isStruckThrough,
+}: {
+  children: string;
+  /** Struck through when the correction is typed beside it, not in place of it. */
+  isStruckThrough?: boolean;
+}) {
+  return (
+    <span
+      className={cn(
+        "mx-0.5 whitespace-nowrap rounded-[3px] px-1 font-mono text-[0.94em] text-destructive",
+        isStruckThrough
+          ? "bg-critical-soft/70 line-through decoration-destructive/70"
+          : "border-b-2 border-destructive bg-critical-soft",
+      )}
+    >
       {children}
     </span>
   );

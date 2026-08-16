@@ -49,6 +49,18 @@ export const questionContentValidator = v.union(
     after: v.string(),
     acceptedAnswers: v.array(v.string()),
   }),
+  /**
+   * A short passage carrying several wrong forms, one per `{{n}}` marker. The
+   * student retypes each one correctly, so it is marked gap by gap like a
+   * fill_blank rather than all-or-nothing like a single error_fix.
+   */
+  v.object({
+    kind: v.literal("proofread"),
+    text: v.string(),
+    errors: v.array(
+      v.object({ flagged: v.string(), acceptedAnswers: v.array(v.string()) }),
+    ),
+  }),
   v.object({
     kind: v.literal("open_response"),
     expectedAnswer: v.optional(v.string()),
@@ -79,6 +91,12 @@ export const publicQuestionContentValidator = v.union(
     before: v.string(),
     flagged: v.string(),
     after: v.string(),
+  }),
+  v.object({
+    kind: v.literal("proofread"),
+    text: v.string(),
+    /** The wrong forms only; what they should become stays on the server. */
+    errors: v.array(v.object({ flagged: v.string() })),
   }),
   v.object({ kind: v.literal("open_response") }),
 );
@@ -185,6 +203,12 @@ export function toPublicContent(content: QuestionContent): PublicQuestionContent
         flagged: content.flagged,
         after: content.after,
       };
+    case "proofread":
+      return {
+        kind: "proofread",
+        text: content.text,
+        errors: content.errors.map((error) => ({ flagged: error.flagged })),
+      };
     case "matching":
       return {
         kind: "matching",
@@ -218,6 +242,13 @@ function gradedFraction(content: QuestionContent, response: AnswerResponse) {
   if (content.kind === "error_fix") {
     const typed = response.kind === "text" ? response.text : "";
     return matchesAcceptedAnswer(typed, content.acceptedAnswers) ? 1 : 0;
+  }
+  if (content.kind === "proofread") {
+    const values = response.kind === "blanks" ? response.values : [];
+    const fixedErrors = content.errors.filter((error, index) =>
+      matchesAcceptedAnswer(values[index] ?? "", error.acceptedAnswers),
+    );
+    return content.errors.length === 0 ? 0 : fixedErrors.length / content.errors.length;
   }
   if (content.kind === "matching") {
     const rights = response.kind === "matches" ? response.rights : [];
@@ -278,6 +309,8 @@ export function describeCorrectAnswer(content: QuestionContent) {
       return content.gaps.map((gap) => gap.options[gap.correctOption] ?? "").join(" · ");
     case "error_fix":
       return content.acceptedAnswers[0] ?? null;
+    case "proofread":
+      return content.errors.map((error) => error.acceptedAnswers[0] ?? "").join(" · ");
     case "open_response":
       return content.expectedAnswer ?? null;
   }
@@ -324,6 +357,19 @@ export function gradeResponseParts(
       isCorrect: response.rights[index] === pair.right,
       reason: null,
     }));
+  }
+  if (content.kind === "proofread" && response.kind === "blanks") {
+    return content.errors.map((error, index) => {
+      const given = response.values[index] ?? "";
+      return {
+        // The wrong form is the label: it says which mistake this verdict is about.
+        label: error.flagged,
+        given,
+        expected: error.acceptedAnswers[0] ?? "",
+        isCorrect: matchesAcceptedAnswer(given, error.acceptedAnswers),
+        reason: null,
+      };
+    });
   }
   return [];
 }

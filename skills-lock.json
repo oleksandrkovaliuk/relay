@@ -198,6 +198,18 @@
       "sourceType": "github",
       "skillPath": "skills/convex-verify/SKILL.md",
       "computedHash": "dbe65a37ca2e9a5afa55669b8928ce1dc3ac765151452008f9105bde049228f7"
+    },
+    "prototype": {
+      "source": "nevco-sports/scorebird-skills",
+      "sourceType": "github",
+      "skillPath": "skills/engineering/prototype/SKILL.md",
+      "computedHash": "d0859c9b8ba656a49a72365bc34988c97b868ebb11d875f5263de91c1bcb715f"
+    },
+    "setup-scorebird-skills": {
+      "source": "nevco-sports/scorebird-skills",
+      "sourceType": "github",
+      "skillPath": "skills/engineering/setup-scorebird-skills/SKILL.md",
+      "computedHash": "7b2be0708bce46e83c9ef191822017920e39b8c9384e18bc4f8b66b3dda295f3"
     }
   }
 }

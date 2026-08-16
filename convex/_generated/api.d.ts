@@ -19,6 +19,7 @@ import type * as seed from "../seed.js";
 import type * as students from "../students.js";
 import type * as submissionLib from "../submissionLib.js";
 import type * as submissions from "../submissions.js";
+import type * as teaching from "../teaching.js";
 
 import type {
   ApiFromModules,
@@ -38,6 +39,7 @@ declare const fullApi: ApiFromModules<{
   students: typeof students;
   submissionLib: typeof submissionLib;
   submissions: typeof submissions;
+  teaching: typeof teaching;
 }>;
 
 /**

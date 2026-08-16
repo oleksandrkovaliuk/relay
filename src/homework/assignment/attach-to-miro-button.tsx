@@ -3,6 +3,7 @@ import { useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
+import { readClaudeModel } from "@/claude/claude-model-preference";
 import { getDesktopBridge } from "@/claude/desktop-bridge";
 import { useClaudeProgress } from "@/claude/use-claude-progress";
 import type { BoardAttachment } from "@/shared/claude";
@@ -42,6 +43,7 @@ export function AttachToMiroButton({
     setError(null);
     try {
       const result = await bridge.attachHomeworkToBoard({
+        model: readClaudeModel(),
         requestId: nextRequestId,
         miroBoardUrl: board.miroBoardUrl,
         title,

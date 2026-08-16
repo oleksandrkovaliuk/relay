@@ -23,6 +23,7 @@ const homeworkQuestionTypeValidator = v.union(
   v.literal("matching"),
   v.literal("select_cloze"),
   v.literal("error_fix"),
+  v.literal("proofread"),
   v.literal("short_answer"),
   v.literal("rewrite"),
 );

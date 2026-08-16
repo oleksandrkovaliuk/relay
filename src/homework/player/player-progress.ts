@@ -208,6 +208,11 @@ function isResponseCompatible(question: PlayerQuestion, response: AnswerResponse
         response.rights.every((right) => right.length === 0 || availableRights.includes(right))
       );
     }
+    case "proofread":
+      return (
+        response.kind === "blanks" &&
+        response.values.length === question.content.errors.length
+      );
     // Both are answered by typing, so a saved answer restores the same way.
     case "error_fix":
     case "open_response":

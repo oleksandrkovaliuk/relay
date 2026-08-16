@@ -1,23 +1,11 @@
-import { useMutation } from "convex/react";
 import { useQuery } from "convex-helpers/react/cache";
 import { ArrowRight, ExternalLink } from "lucide-react";
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 
 import { api } from "@convex/_generated/api";
 import type { Id } from "@convex/_generated/dataModel";
-import {
-  appendClaudeActivity,
-  countGeneratedActivities,
-  describeClaudeRuntimeEvent,
-  describeDraftProgress,
-  type ClaudeActivityEntry,
-  type ClaudeActivityUpdate,
-} from "@/claude/claude-activity";
-import {
-  ClaudeActivityDisclosure,
-  ClaudeActivityPanel,
-} from "@/claude/claude-activity-panel";
-import { getDesktopBridge } from "@/claude/desktop-bridge";
+import { useGenerationRuns } from "@/claude/generation-runs";
+import { PageHeader } from "@/app/workspace-shell";
 import { SectionHeading } from "@/components/section-heading";
 import { Button } from "@/components/ui/button";
 import {
@@ -33,8 +21,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
-import { DraftReview } from "@/homework/review/draft-review";
-import { ACTIVITY_TYPES, type ActivityType, type ClaudeAvailability, type HomeworkDraft } from "@/shared/claude";
+import { ACTIVITY_TYPES, type ActivityType, type ClaudeAvailability } from "@/shared/claude";
 
 import { ActivityTypePicker } from "./activity-type-picker";
 import { BuilderPreview } from "./builder-preview";
@@ -61,21 +48,18 @@ export function HomeworkBuilder({
   availability,
   initialStudentId,
   onOpenClaudeSetup,
-  onPublished,
+  onGenerationStarted,
   startFresh = false,
 }: {
   availability: ClaudeAvailability | null;
   initialStudentId: Id<"students"> | null;
   onOpenClaudeSetup?: () => void;
-  onPublished: () => void;
+  /** Called once the run is recorded — the builder's job is done at that point. */
+  onGenerationStarted: () => void;
   startFresh?: boolean;
 }) {
   const students = useQuery(api.students.list);
-  const createJob = useMutation(api.aiJobs.createHomeworkGeneration);
-  const markRunning = useMutation(api.aiJobs.markRunning);
-  const completeJob = useMutation(api.aiJobs.completeHomeworkGeneration);
-  const finishJob = useMutation(api.aiJobs.finishWithError);
-  const recordProgress = useMutation(api.aiJobs.recordProgress);
+  const { start: startGeneration } = useGenerationRuns();
 
   const [initialSnapshot] = useState(() =>
     startFresh ? createEmptyBuilderSnapshot() : readBuilderSnapshot(),
@@ -95,44 +79,14 @@ export function HomeworkBuilder({
   const [difficulty, setDifficulty] = useState<Difficulty>(initialSnapshot.difficulty);
   const [useMiroBoard, setUseMiroBoard] = useState(initialSnapshot.useMiroBoard);
   const [activityTypes, setActivityTypes] = useState<ActivityType[]>(initialSnapshot.activityTypes);
-  const [activeRequestId, setActiveRequestId] = useState<string | null>(null);
-  const [claudeActivities, setClaudeActivities] = useState<ClaudeActivityEntry[]>([]);
+  /** Which widget's worked example the preview column is showing, if any. */
+  const [previewedActivityType, setPreviewedActivityType] = useState<ActivityType | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [draftId, setDraftId] = useState<Id<"homeworkDrafts"> | null>(null);
-  const cancelledRequests = useRef(new Set<string>());
-  const activitySequence = useRef(0);
-  const activityStartedAt = useRef(0);
-  const activeJobId = useRef<Id<"aiJobs"> | null>(null);
-  const streamedDraftText = useRef("");
-  const reportedActivityCount = useRef(0);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const student = students?.find((candidate) => candidate._id === studentId) ?? null;
   const history = useQuery(api.students.history, studentId ? { studentId } : "skip");
   const recentHistorySummary = summarizeHistory(history);
-
-  const addClaudeActivity = useCallback(function recordActivity(update: ClaudeActivityUpdate) {
-    activitySequence.current += 1;
-    const activityId = activitySequence.current;
-    const elapsedMilliseconds = Math.max(0, Date.now() - activityStartedAt.current);
-    setClaudeActivities((current) =>
-      appendClaudeActivity(current, update, activityId, elapsedMilliseconds),
-    );
-    // Mirror the step onto the job so the homework page can show live progress
-    // even after the teacher navigates away from the builder.
-    const aiJobId = activeJobId.current;
-    if (aiJobId) {
-      void recordProgress({
-        aiJobId,
-        activity: {
-          kind: update.kind,
-          label: update.label,
-          ...(update.detail ? { detail: update.detail } : {}),
-          at: Date.now(),
-        },
-        activityCount: activityId,
-      }).catch(() => undefined);
-    }
-  }, [recordProgress]);
 
   useEffect(function adoptStudentFromCaller() {
     if (initialStudentId) setStudentIds([initialStudentId]);
@@ -158,132 +112,57 @@ export function HomeworkBuilder({
     useMiroBoard,
   ]);
 
-  useEffect(function subscribeToRuntimeEvents() {
-    const bridge = getDesktopBridge();
-    if (!bridge) return;
-    return bridge.onClaudeRuntimeEvent((event) => {
-      if (event.requestId !== activeRequestId) return;
-      const update = describeClaudeRuntimeEvent(event);
-      if (event.type !== "text_delta") {
-        addClaudeActivity(update);
-        return;
-      }
-      // Most of a generation is one long stream of JSON. Reporting how many
-      // activities have been written turns a frozen row into visible progress —
-      // and only when the count changes, so this stays one update per activity
-      // rather than one per delta.
-      streamedDraftText.current += event.text;
-      const writtenCount = countGeneratedActivities(streamedDraftText.current);
-      if (writtenCount === reportedActivityCount.current) return;
-      reportedActivityCount.current = writtenCount;
-      addClaudeActivity({ ...update, detail: describeDraftProgress(streamedDraftText.current) });
-    });
-  }, [activeRequestId, addClaudeActivity]);
-
-  if (draftId) {
-    return (
-      <DraftReview
-        homeworkDraftId={draftId}
-        initialStudentIds={studentIds}
-        generationActivity={<ClaudeActivityDisclosure activities={claudeActivities} />}
-        onDiscarded={() => setDraftId(null)}
-        onPublished={() => {
-          clearBuilderSnapshot();
-          onPublished();
-        }}
-      />
-    );
-  }
-
-  const isGenerating = activeRequestId !== null;
   const canGenerate =
     Boolean(availability?.isAuthenticated) &&
-    !isGenerating &&
+    !isSubmitting &&
     (lessonNotes.trim().length > 0 || Boolean(student?.contextNotes.trim()));
 
+  /**
+   * Starts the run and leaves. Generation takes minutes and now lives above the
+   * pages, so the teacher gets their workspace back instead of watching a
+   * screen — the library shows what is being written, and the draft appears
+   * there when it is done.
+   */
   async function generate() {
-    const bridge = getDesktopBridge();
-    if (!bridge) {
-      setError("Homework generation runs in the desktop app.");
-      return;
-    }
-
-    const requestId = crypto.randomUUID();
     const recentPerformance = summarizeHistory(history);
-    const input = {
-      requestId,
-      ...(student ? { studentName: student.name, studentContext: student.contextNotes } : {}),
-      ...(recentPerformance ? { recentPerformance } : {}),
-      lessonNotes,
-      ...(useMiroBoard && student?.miroBoardUrl ? { miroBoardUrl: student.miroBoardUrl } : {}),
-      targetSkills: parseSkills(targetSkills),
-      durationMinutes,
-      difficulty,
-      activityTypes,
-    };
-
-    activitySequence.current = 0;
-    activityStartedAt.current = Date.now();
-    streamedDraftText.current = "";
-    reportedActivityCount.current = 0;
-    activeJobId.current = null;
-    setClaudeActivities([]);
-    setActiveRequestId(requestId);
     setError(null);
-    addClaudeActivity({ kind: "request", label: "Preparing request" });
-
-    const title = student ? `Homework for ${student.name}` : "Homework";
-    let aiJobId: Id<"aiJobs"> | null = null;
+    setIsSubmitting(true);
     try {
-      aiJobId = await createJob({
-        requestId,
-        title,
-        ...(studentId ? { studentId } : {}),
-        inputSnapshot: JSON.stringify(input),
-      });
-      activeJobId.current = aiJobId;
-      await markRunning({ aiJobId });
-      const result = await bridge.generateHomework(input);
-      addClaudeActivity({ kind: "completion", label: "Saving review draft" });
-      const homeworkDraftId = await completeJob({ aiJobId, draft: toConvexDraft(result.draft) });
-      setDraftId(homeworkDraftId);
-      void bridge
-        .notify({
-          title: "Homework draft ready",
-          body: `${result.draft.title} · ${result.draft.questions.length} activities to review.`,
-        })
-        .catch(() => undefined);
+      await startGeneration(
+        {
+          ...(student ? { studentName: student.name, studentContext: student.contextNotes } : {}),
+          ...(recentPerformance ? { recentPerformance } : {}),
+          lessonNotes,
+          ...(useMiroBoard && student?.miroBoardUrl ? { miroBoardUrl: student.miroBoardUrl } : {}),
+          targetSkills: parseSkills(targetSkills),
+          durationMinutes,
+          difficulty,
+          activityTypes,
+        },
+        {
+          title: student ? `Homework for ${student.name}` : "Homework",
+          ...(studentId ? { studentId } : {}),
+        },
+      );
+      // The brief has been handed over, so the next visit starts from a blank
+      // page rather than re-offering what was just generated.
+      clearBuilderSnapshot();
+      onGenerationStarted();
     } catch (caught) {
-      const wasCancelled = cancelledRequests.current.has(requestId);
-      const message = wasCancelled
-        ? "Generation stopped. Your brief is still here."
-        : caught instanceof Error
-          ? caught.message
-          : "Generation failed.";
-      setError(message);
-      if (aiJobId) {
-        await finishJob({
-          aiJobId,
-          status: wasCancelled ? "cancelled" : "failed",
-          errorMessage: message,
-        }).catch(() => undefined);
-      }
+      setError(caught instanceof Error ? caught.message : "Generation could not be started.");
     } finally {
-      cancelledRequests.current.delete(requestId);
-      activeJobId.current = null;
-      setActiveRequestId(null);
+      setIsSubmitting(false);
     }
-  }
-
-  async function stopGeneration() {
-    const bridge = getDesktopBridge();
-    if (!bridge || !activeRequestId) return;
-    cancelledRequests.current.add(activeRequestId);
-    addClaudeActivity({ kind: "cancelled", label: "Stop requested" });
-    await bridge.cancelClaudeRequest(activeRequestId);
   }
 
   return (
+    <>
+      {/* The review step brings its own header, so this one belongs to the
+          brief only — two page titles must never stack. */}
+      <PageHeader
+        title="Build homework"
+        description="Shape the brief and preview the student experience as you go."
+      />
     <div className="mx-auto grid max-w-[1580px] gap-10 px-6 py-8 lg:px-10 xl:py-10 2xl:grid-cols-[minmax(0,0.85fr)_minmax(0,1fr)] 2xl:gap-14 2xl:px-12">
       <div className="grid content-start gap-6">
         <SectionHeading
@@ -396,7 +275,12 @@ export function HomeworkBuilder({
             title="Activity types"
             description="Optional. Pin the homework to specific widgets, or leave blank for a varied mix."
           >
-            <ActivityTypePicker selected={activityTypes} onChange={setActivityTypes} />
+            <ActivityTypePicker
+              selected={activityTypes}
+              onChange={setActivityTypes}
+              previewed={previewedActivityType}
+              onPreview={setPreviewedActivityType}
+            />
           </BriefRow>
 
           {student?.miroBoardUrl ? (
@@ -417,15 +301,6 @@ export function HomeworkBuilder({
           ) : null}
         </div>
 
-        {claudeActivities.length > 0 && (isGenerating || error) ? (
-          <ClaudeActivityPanel
-            activities={claudeActivities}
-            isRunning={isGenerating}
-            startedAt={activityStartedAt.current}
-            onStop={isGenerating ? () => void stopGeneration() : undefined}
-          />
-        ) : null}
-
         {error ? (
           <p
             role="alert"
@@ -438,7 +313,7 @@ export function HomeworkBuilder({
 
         <div className="flex flex-wrap items-center gap-x-4 gap-y-3">
           <Button size="xl" disabled={!canGenerate} onClick={() => void generate()}>
-            {isGenerating ? "Generating…" : "Generate draft"}
+            {isSubmitting ? "Starting…" : "Generate draft"}
             <ArrowRight size={15} aria-hidden />
           </Button>
           <p
@@ -467,9 +342,12 @@ export function HomeworkBuilder({
         targetSkills={targetSkills}
         durationMinutes={durationMinutes}
         difficulty={difficulty}
-        isGenerating={isGenerating}
+        isGenerating={isSubmitting}
+        previewedActivityType={previewedActivityType}
+        onPreviewActivityType={setPreviewedActivityType}
       />
     </div>
+    </>
   );
 }
 
@@ -581,26 +459,6 @@ function summarizeHistory(history: ReturnType<typeof useQuery<typeof api.student
   );
   const focusLine = focusAreas.length > 0 ? ` Open focus areas: ${focusAreas.join(", ")}.` : "";
   return `Recent results — ${scoreLine}.${focusLine}`;
-}
-
-function toConvexDraft(draft: HomeworkDraft) {
-  return {
-    title: draft.title,
-    summary: draft.summary,
-    estimatedMinutes: draft.estimatedMinutes,
-    learningObjectives: draft.learningObjectives,
-    questions: draft.questions.map((question) => ({
-      id: question.id,
-      type: question.type,
-      prompt: question.prompt,
-      instructions: question.instructions,
-      content: question.content,
-      skillTags: question.skillTags,
-      points: question.points,
-      difficulty: question.difficulty,
-      explanation: question.explanation,
-    })),
-  };
 }
 
 function readBuilderSnapshot(): BuilderBriefSnapshot {

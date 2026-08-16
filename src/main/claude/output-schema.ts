@@ -3,7 +3,7 @@ import { z } from "zod";
 import {
   boardAttachmentSchema,
   homeworkDraftSchema,
-  homeworkQuestionSchema,
+  questionRewriteOutputSchema,
   submissionSummarySchema,
 } from "@/shared/claude";
 
@@ -68,7 +68,7 @@ export function createSummaryOutputSchema() {
 }
 
 export function createQuestionRewriteOutputSchema() {
-  return toClaudeCompatibleSchema(homeworkQuestionSchema);
+  return toClaudeCompatibleSchema(questionRewriteOutputSchema);
 }
 
 export function createBoardAttachOutputSchema() {

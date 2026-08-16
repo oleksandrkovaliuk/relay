@@ -1,3 +1,4 @@
+import { useNavigate } from "@tanstack/react-router";
 import { useQuery } from "convex-helpers/react/cache";
 import type { FunctionReturnType } from "convex/server";
 import { useEffect, useId, useState } from "react";
@@ -16,7 +17,6 @@ import {
   humanizeIdentifier,
   initials,
 } from "@/lib/utils";
-import { SubmissionDetail } from "@/submissions/submission-detail";
 import {
   describeInsightScope,
   isInsightFilterActive,
@@ -83,7 +83,10 @@ export function InsightsView({
   const skills = useQuery(api.dashboard.skillMastery, filterArgument);
   const questions = useQuery(api.dashboard.questionInsights, filterArgument);
   const students = useQuery(api.dashboard.studentPressure, filterArgument);
-  const [openSubmissionId, setOpenSubmissionId] = useState<Id<"submissions"> | null>(null);
+  const navigate = useNavigate();
+  /** Review is a place, not a panel: one surface, linkable, with room to read. */
+  const openSubmission = (submissionId: Id<"submissions">) =>
+    void navigate({ to: "/submissions/$submissionId", params: { submissionId } });
   const isFiltered = isInsightFilterActive(search);
 
   useEffect(function revealRequestedSection() {
@@ -115,7 +118,7 @@ export function InsightsView({
           <InsightHighlightList
             className="min-[900px]:grid-cols-2"
             highlights={highlights}
-            onOpenSubmission={setOpenSubmissionId}
+            onOpenSubmission={openSubmission}
           />
         )}
       </section>
@@ -124,20 +127,16 @@ export function InsightsView({
         <InsightsLoading />
       ) : (
         <>
-          <MetricsOverview overview={overview} />
+          {/* Which activities students actually get wrong is the most
+              teachable thing on this page, so it comes before the totals. */}
+          <QuestionInsightsCard questions={questions} />
           <SkillMasteryCard skills={skills} />
           <StudentPerformanceCard now={now} students={students} />
+          <MetricsOverview overview={overview} />
           <SubmissionVolumeCard dailySubmissions={overview.daily} />
-          <QuestionInsightsCard questions={questions} />
         </>
       )}
 
-      {openSubmissionId ? (
-        <SubmissionDetail
-          submissionId={openSubmissionId}
-          onClose={() => setOpenSubmissionId(null)}
-        />
-      ) : null}
     </div>
   );
 }
@@ -770,7 +769,7 @@ function QuestionInsightsCard({
   return (
     <section id={sectionElementId("questions")}>
       <SectionHeading
-        title="Questions that cost the most"
+        title="Questions students get wrong"
         description="Low accuracy, long response times, and repeated edits point to uncertainty."
       />
       <QuestionInsightsContent questions={questions} />
@@ -930,55 +929,64 @@ function TableRowsSkeleton() {
   );
 }
 
+/**
+ * The page below the findings, drawn in the order it really arrives: the
+ * question table first, then the two comparison panels, the totals, and the
+ * chart. It sits inside the page container, so it carries no width of its own.
+ */
 function InsightsLoading() {
   return (
-    <div
-      aria-busy="true"
-      aria-label="Loading insights"
-      className="mx-auto grid max-w-[1560px] gap-8 px-5 pb-16 pt-5 sm:px-8 lg:gap-10 lg:px-12 lg:pt-7 2xl:px-16"
-    >
-      <div
-        className="grid grid-cols-2 gap-x-6 gap-y-7 border-b border-border/80 pb-8 sm:grid-cols-3 lg:grid-cols-5 lg:pb-10"
-        aria-hidden="true"
-      >
-        {METRIC_SKELETON_IDS.map((metricId) => (
-          <div key={metricId}>
-            <Skeleton className="h-3 w-20" />
-            <Skeleton className="mt-3 h-8 w-16" />
+    <>
+      <section aria-busy="true" aria-label="Loading question insights">
+        <Skeleton className="h-5 w-56" />
+        <Skeleton className="mt-2 h-3.5 w-96 max-w-full" />
+        <div className={`${PANEL_CLASS} mt-3`} aria-hidden>
+          <div className="border-b border-border/70 bg-muted/50 px-5 py-3">
+            <Skeleton className="h-3 w-28" />
           </div>
-        ))}
-      </div>
-      <div
-        className="grid gap-9 border-b border-border/80 pb-10 xl:grid-cols-2 xl:gap-0"
-        aria-hidden="true"
-      >
-        <section className="xl:border-r xl:border-border/80 xl:pr-10">
-          <Skeleton className="h-5 w-32" />
-          <PanelRowsSkeleton />
+          {Array.from({ length: 4 }, (_, index) => (
+            <div key={index} className="flex items-center gap-4 border-b border-border/70 px-5 py-4 last:border-b-0">
+              <div className="min-w-0 flex-1">
+                <Skeleton className="h-3.5 w-4/5" />
+                <Skeleton className="mt-2 h-2.5 w-52" />
+              </div>
+              <Skeleton className="h-3 w-10" />
+              <Skeleton className="h-3 w-10" />
+              <Skeleton className="h-3 w-10" />
+            </div>
+          ))}
+        </div>
+      </section>
+
+      {["skills", "students"].map((section) => (
+        <section key={section} aria-hidden>
+          <Skeleton className="h-5 w-40" />
+          <Skeleton className="mt-2 h-3.5 w-72 max-w-full" />
+          <div className={`${PANEL_CLASS} mt-3`}>
+            <PanelRowsSkeleton />
+          </div>
         </section>
-        <section className="xl:pl-10">
-          <Skeleton className="h-5 w-36" />
-          <PanelRowsSkeleton />
-        </section>
-      </div>
-      <div
-        className="grid gap-9 border-b border-border/80 pb-10 xl:grid-cols-2 xl:gap-0"
-        aria-hidden="true"
-      >
-        <section className="xl:border-r xl:border-border/80 xl:pr-10">
-          <Skeleton className="h-5 w-36" />
-          <PanelRowsSkeleton />
-        </section>
-        <section className="xl:pl-10">
-          <Skeleton className="h-5 w-32" />
-          <PanelRowsSkeleton />
-        </section>
-      </div>
-      <section className="border-b border-border/80 pb-10" aria-hidden="true">
+      ))}
+
+      <section aria-hidden>
+        <Skeleton className="h-5 w-32" />
+        <div className={`${PANEL_CLASS} mt-3 grid grid-cols-2 gap-px bg-border/60 lg:grid-cols-5`}>
+          {METRIC_SKELETON_IDS.map((metricId) => (
+            <div key={metricId} className="bg-card px-5 py-5">
+              <Skeleton className="h-3 w-20" />
+              <Skeleton className="mt-3 h-8 w-16" />
+            </div>
+          ))}
+        </div>
+      </section>
+
+      <section aria-hidden>
         <Skeleton className="h-5 w-40" />
         <Skeleton className="mt-2 h-3.5 w-60" />
-        <Skeleton className="mt-6 h-64 w-full lg:h-72" />
+        <div className={`${PANEL_CLASS} mt-3 px-5 py-5`}>
+          <Skeleton className="h-64 w-full lg:h-72" />
+        </div>
       </section>
-    </div>
+    </>
   );
 }

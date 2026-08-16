@@ -49,23 +49,33 @@ describe("createSummaryOutputSchema", () => {
 });
 
 describe("createQuestionRewriteOutputSchema", () => {
-  it("requires one complete interactive question", () => {
+  it("asks for one complete question inside a named field", () => {
     const schema = createQuestionRewriteOutputSchema();
 
     expect(collectMetaschemaKeys(schema)).toEqual([]);
+    /**
+     * Named, not the root object. A question carries its own `content`, and a
+     * bare question at the root led the model to wrap the whole activity in
+     * `content` on its first attempt, wasting a turn on a rejected tool call.
+     */
+    expect(schema).toMatchObject({ type: "object", required: ["question"] });
     expect(schema).toMatchObject({
-      type: "object",
-      required: [
-        "id",
-        "type",
-        "prompt",
-        "instructions",
-        "content",
-        "skillTags",
-        "points",
-        "difficulty",
-        "explanation",
-      ],
+      properties: {
+        question: {
+          type: "object",
+          required: [
+            "id",
+            "type",
+            "prompt",
+            "instructions",
+            "content",
+            "skillTags",
+            "points",
+            "difficulty",
+            "explanation",
+          ],
+        },
+      },
     });
   });
 });

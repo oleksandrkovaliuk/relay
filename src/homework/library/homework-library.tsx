@@ -13,7 +13,6 @@ import { useState } from "react";
 
 import { api } from "@convex/_generated/api";
 import type { Id } from "@convex/_generated/dataModel";
-import { ListSkeleton } from "@/components/list-skeleton";
 import { SectionHeading } from "@/components/section-heading";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback, AvatarGroup, AvatarGroupCount } from "@/components/ui/avatar";
@@ -40,7 +39,7 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { buildShareUrl } from "@/lib/share-links";
 import { HomeworkGlyph } from "@/homework/homework-glyph";
 import { initials } from "@/lib/utils";
-import { GeneratingHomework } from "./generating-homework";
+import { InProgressHomework } from "./in-progress-homework";
 
 type HomeworkFilter = "all" | "published" | "drafts" | "closed";
 type PublishedAssignment = NonNullable<
@@ -149,7 +148,9 @@ export function HomeworkLibrary({
         </Button>
       </div>
 
-      <GeneratingHomework />
+      {/* Running generations and live attempts are the same question — what is
+          happening right now — so they share one section. */}
+      <InProgressHomework />
 
       {!hasVisibleHomework ? (
         <div className="panel">
@@ -185,25 +186,30 @@ export function HomeworkLibrary({
             {visibleDrafts.map((draft) => (
               <article
                 key={draft._id}
-                className="group/row flex items-center gap-3 px-4 py-3 transition-colors duration-150 hover:bg-muted/35 xl:px-5"
+                className="group/row relative flex items-center gap-3 px-4 py-3 transition-colors duration-150 hover:bg-muted/35 xl:px-5"
               >
-                <HomeworkGlyph id={draft._id} />
+                {/* The row itself is the way in. The overlay carries the click so
+                    the buttons beside it stay real buttons rather than nested
+                    ones, which no browser allows. */}
                 <button
                   type="button"
+                  aria-label={`Open ${draft.title}`}
                   onClick={() => onOpenDraft(draft._id)}
-                  className="min-w-0 flex-1 text-left outline-none focus-visible:underline"
-                >
-                  <span className="block truncate text-[14px] font-medium tracking-[-0.01em]">
+                  className="absolute inset-0 z-0 outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+                />
+                <HomeworkGlyph id={draft._id} />
+                <div className="pointer-events-none min-w-0 flex-1">
+                  <p className="truncate text-[14px] font-medium tracking-[-0.01em]">
                     {draft.title}
-                  </span>
-                  <span className="mt-0.5 block truncate text-[12px] text-muted-foreground numeric">
+                  </p>
+                  <p className="mt-0.5 truncate text-[12px] text-muted-foreground numeric">
                     {describeDraftMeta(draft)}
-                  </span>
-                </button>
+                  </p>
+                </div>
                 <Button
                   variant="ghost"
                   size="sm"
-                  className="shrink-0 opacity-0 transition-opacity duration-150 focus-visible:opacity-100 group-hover/row:opacity-100"
+                  className="relative z-10 shrink-0 opacity-0 transition-opacity duration-150 focus-visible:opacity-100 group-hover/row:opacity-100"
                   onClick={() => {
                     setDiscardError(null);
                     setDraftToDiscard(draft);
@@ -212,9 +218,9 @@ export function HomeworkLibrary({
                   <HugeiconsIcon icon={Delete02Icon} size={14} strokeWidth={2} aria-hidden />
                   <span className="sr-only sm:not-sr-only">Clear</span>
                 </Button>
-                <Button variant="outline" size="sm" className="shrink-0" onClick={() => onOpenDraft(draft._id)}>
+                <span className="relative z-0 shrink-0 text-[12.5px] font-medium text-primary">
                   Review
-                </Button>
+                </span>
               </article>
             ))}
           </div>
@@ -231,10 +237,16 @@ export function HomeworkLibrary({
               return (
                 <article
                   key={assignment._id}
-                  className="group/row flex items-stretch gap-3 px-4 py-3 transition-colors duration-150 hover:bg-muted/35 xl:px-5"
+                  className="group/row relative flex items-stretch gap-3 px-4 py-3 transition-colors duration-150 hover:bg-muted/35 xl:px-5"
                 >
+                  <button
+                    type="button"
+                    aria-label={`Open ${assignment.title}`}
+                    onClick={() => onOpenDraft(assignment.homeworkDraftId)}
+                    className="absolute inset-0 z-0 outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+                  />
                   <HomeworkGlyph id={assignment.homeworkDraftId} />
-                  <div className="min-w-0 flex-1 self-stretch">
+                  <div className="pointer-events-none min-w-0 flex-1 self-stretch">
                     <p className="flex min-w-0 items-center gap-2">
                       <span className="truncate text-[14px] font-medium tracking-[-0.01em]">
                         {assignment.title}
@@ -250,15 +262,8 @@ export function HomeworkLibrary({
                     </p>
                   </div>
 
-                  <div className="flex shrink-0 flex-col items-end justify-between gap-2">
+                  <div className="relative z-10 flex shrink-0 flex-col items-end justify-between gap-2">
                     <div className="flex items-center gap-1 opacity-0 transition-opacity duration-150 focus-within:opacity-100 group-hover/row:opacity-100">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => onOpenDraft(assignment.homeworkDraftId)}
-                      >
-                        Preview & edit
-                      </Button>
                       <Button
                         variant="ghost"
                         size="sm"
@@ -293,7 +298,9 @@ export function HomeworkLibrary({
                             : "Link"}
                       </Button>
                     </div>
-                    <AssignedStudentAvatars students={assignment.assignedStudents} />
+                    <span className="pointer-events-none">
+                      <AssignedStudentAvatars students={assignment.assignedStudents} />
+                    </span>
                   </div>
                 </article>
               );
@@ -423,14 +430,45 @@ function formatPublishedDate(timestamp: number) {
   return new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" }).format(timestamp);
 }
 
+/** The library's own shape: filter tabs, the new-homework button, then rows. */
 function LoadingState() {
   return (
-    <div className="mx-auto grid max-w-[1480px] gap-8 px-6 py-8 lg:px-10 xl:py-10">
-      <div className="flex items-center justify-between gap-4">
-        <Skeleton className="h-8 w-72 rounded-2xl" />
-        <Skeleton className="h-9 w-36 rounded-2xl" />
+    <div
+      role="status"
+      aria-busy="true"
+      aria-label="Loading homework"
+      className="mx-auto grid max-w-[1480px] gap-8 px-6 py-8 lg:px-10 xl:gap-9 xl:py-10"
+    >
+      <div className="flex flex-wrap items-center justify-between gap-4">
+        <Skeleton className="h-9 w-[22rem] rounded-2xl" />
+        <Skeleton className="h-10 w-40 rounded-2xl" />
       </div>
-      <ListSkeleton rows={3} label="Loading homework" />
+      <section className="grid gap-3">
+        <Skeleton className="h-4 w-24" />
+        <HomeworkRowsSkeleton rows={3} />
+      </section>
+      <section className="grid gap-3">
+        <Skeleton className="h-4 w-28" />
+        <HomeworkRowsSkeleton rows={4} />
+      </section>
+    </div>
+  );
+}
+
+/** One row per homework: glyph, title, meta line, trailing action. */
+function HomeworkRowsSkeleton({ rows }: { rows: number }) {
+  return (
+    <div className="panel divide-y divide-border/70 overflow-hidden" aria-hidden>
+      {Array.from({ length: rows }, (_, index) => (
+        <div key={index} className="flex items-center gap-3 px-4 py-3 xl:px-5">
+          <Skeleton className="size-9 shrink-0 rounded-xl" />
+          <div className="min-w-0 flex-1">
+            <Skeleton className="h-3.5 w-[min(22rem,60%)]" />
+            <Skeleton className="mt-2 h-2.5 w-40" />
+          </div>
+          <Skeleton className="h-7 w-20 rounded-2xl" />
+        </div>
+      ))}
     </div>
   );
 }

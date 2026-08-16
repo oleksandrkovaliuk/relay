@@ -5,18 +5,35 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
 import { api } from "@convex/_generated/api";
 import type { Id } from "@convex/_generated/dataModel";
+import { toPublicContent } from "@convex/content";
+import { PageHeader } from "@/app/workspace-shell";
 import { SectionHeading } from "@/components/section-heading";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Field, FieldDescription, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn, humanizeIdentifier } from "@/lib/utils";
 import { buildShareUrl, isPlayerPublished } from "@/lib/share-links";
-import {
-  emptyResponse,
-  type PublicQuestionContent,
-} from "@/homework/player/answer-types";
+import { emptyResponse } from "@/homework/player/answer-types";
 import { HomeworkWizard } from "@/homework/player/homework-wizard";
 import { PromptContent } from "@/homework/player/prompt-content";
 import { QuestionWidget } from "@/homework/player/question-widgets";
@@ -52,6 +69,7 @@ export function DraftReview({
   const draft = useQuery(api.assignments.getDraft, { homeworkDraftId });
   const students = useQuery(api.students.list);
   const publish = useMutation(api.assignments.publish);
+  const closeAssignment = useMutation(api.assignments.close);
   const replaceQuestion = useMutation(api.assignments.replaceQuestion);
   const setAssignees = useMutation(api.assignments.setAssignees);
   const [selectedQuestionIndex, setSelectedQuestionIndex] = useState(0);
@@ -59,6 +77,9 @@ export function DraftReview({
   const [dueDate, setDueDate] = useState("");
   const [shareToken, setShareToken] = useState<string | null>(null);
   const [isPublishing, setIsPublishing] = useState(false);
+  const [isPublishDialogOpen, setIsPublishDialogOpen] = useState(false);
+  const [isCloseDialogOpen, setIsCloseDialogOpen] = useState(false);
+  const [isClosing, setIsClosing] = useState(false);
   const [publishError, setPublishError] = useState<string | null>(null);
   const [hasCopied, setHasCopied] = useState(false);
   const [isSummaryExpanded, setIsSummaryExpanded] = useState(false);
@@ -83,25 +104,37 @@ export function DraftReview({
     [draft, initialStudentIds],
   );
 
-  if (draft === undefined || students === undefined)
-    return <DraftReviewSkeleton />;
+  if (draft === undefined || students === undefined) {
+    return (
+      <>
+        <DraftPageHeader />
+        <DraftReviewSkeleton />
+      </>
+    );
+  }
   if (draft === null) {
     return (
-      <p className="mx-auto max-w-[1580px] px-6 py-8 text-[13px] lg:px-10">
-        This draft is no longer available.
-      </p>
+      <>
+        <DraftPageHeader />
+        <p className="mx-auto max-w-[1580px] px-6 py-8 text-[13px] lg:px-10">
+          This draft is no longer available.
+        </p>
+      </>
     );
   }
 
   if (shareToken) {
     return (
-      <PublishedState
-        shareToken={shareToken}
-        title={draft.title}
-        hasCopied={hasCopied}
-        onCopied={() => setHasCopied(true)}
-        onDone={onPublished}
-      />
+      <>
+        <DraftPageHeader />
+        <PublishedState
+          shareToken={shareToken}
+          title={draft.title}
+          hasCopied={hasCopied}
+          onCopied={() => setHasCopied(true)}
+          onDone={onPublished}
+        />
+      </>
     );
   }
 
@@ -126,6 +159,7 @@ export function DraftReview({
         studentIds: selectedStudentIds,
         ...(dueDate ? { dueAt: endOfLocalDay(dueDate) } : {}),
       });
+      setIsPublishDialogOpen(false);
       setShareToken(published.shareToken);
     } catch (caught) {
       setPublishError(
@@ -144,6 +178,18 @@ export function DraftReview({
     const publication = draft?.publication;
     if (!publication) return;
     await setAssignees({ assignmentId: publication.assignmentId, studentIds });
+  }
+
+  async function closeStudentAccess() {
+    const publication = draft?.publication;
+    if (!publication) return;
+    setIsClosing(true);
+    try {
+      await closeAssignment({ assignmentId: publication.assignmentId });
+      setIsCloseDialogOpen(false);
+    } finally {
+      setIsClosing(false);
+    }
   }
 
   async function applyClaudeRevision(
@@ -166,9 +212,39 @@ export function DraftReview({
   }
 
   return (
-    /* The same shell as the builder: one back link across the top, then two
-       columns in the same 0.85 : 1 relationship whose headings share a baseline. */
-    <div className="phase-enter mx-auto w-full max-w-[1580px] px-6 py-8 lg:px-10 xl:py-10 2xl:px-12">
+    <>
+      <DraftPageHeader
+        action={
+          draft.publication ? (
+            <div className="flex items-center gap-1.5">
+              <Button
+                variant="ghost"
+                nativeButton={false}
+                render={
+                  <a
+                    href={buildShareUrl(draft.publication.shareToken)}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  />
+                }
+              >
+                <ExternalLink size={14} aria-hidden /> Student link
+              </Button>
+              <Button variant="destructive" onClick={() => setIsCloseDialogOpen(true)}>
+                Close access
+              </Button>
+            </div>
+          ) : (
+            <Button size="lg" onClick={() => setIsPublishDialogOpen(true)}>
+              Publish
+            </Button>
+          )
+        }
+      />
+      {/* The same shell as the builder: one back link across the top, then two
+          columns in the same 0.85 : 1 relationship whose headings share a
+          baseline. */}
+      <div className="mx-auto w-full max-w-[1580px] px-6 py-8 lg:px-10 xl:py-10 2xl:px-12">
       <div className="mb-5">
         <Button
           variant="ghost"
@@ -268,89 +344,15 @@ export function DraftReview({
             </div>
           </section>
 
-          <section className="grid gap-3">
-            <SectionHeading
-              title="Assigned students"
-              description="A set is not tied to one learner — assign it to as many as you like."
-              action={
-                <span className="text-[12px] text-muted-foreground numeric">
-                  {selectedStudentIds.length || "None"}
-                </span>
-              }
-            />
-            <div className="panel px-5 py-4 xl:px-6">
-              <StudentMultiPicker
-                students={students}
-                value={selectedStudentIds}
-                onValueChange={(studentIds) => void saveAssignees(studentIds)}
-              />
-            </div>
-          </section>
-
           {generationActivity}
 
-          {!draft.publication ? (
+          {draft.publication ? (
             <section className="grid gap-3">
-              <SectionHeading title="Publish" />
-              <div className="panel overflow-hidden">
-                <div className="px-5 py-5 xl:px-6">
-                  <Field>
-                    <FieldLabel htmlFor="draft-due-date">Due date</FieldLabel>
-                    <Input
-                      id="draft-due-date"
-                      type="date"
-                      min={todayDateInputValue()}
-                      value={dueDate}
-                      onChange={(event) => setDueDate(event.target.value)}
-                    />
-                    <FieldDescription>
-                      Students see this date. Access stays open until you close
-                      it.
-                    </FieldDescription>
-                  </Field>
-                </div>
-                {publishError ? (
-                  <p
-                    ref={publishErrorRef}
-                    role="alert"
-                    tabIndex={-1}
-                    className="border-t border-destructive/15 bg-critical-soft px-5 py-3 text-[12.5px] leading-5 text-destructive outline-none xl:px-6"
-                  >
-                    {publishError} Check your connection and try again.
-                  </p>
-                ) : null}
-                <div className="border-t border-border/70 px-5 py-4 xl:px-6">
-                  <Button
-                    size="xl"
-                    className="w-full"
-                    disabled={isPublishing}
-                    onClick={() => void publishDraft()}
-                  >
-                    {isPublishing ? "Publishing…" : "Publish & get link"}
-                  </Button>
-                </div>
-              </div>
-            </section>
-          ) : (
-            <section className="grid gap-3">
-              <SectionHeading title="Published" />
+              <SectionHeading
+                title="Published"
+                description="Edits save straight to the live student assignment."
+              />
               <div className="panel grid gap-3 px-5 py-5 xl:px-6">
-                <p className="text-[13px] leading-5 text-muted-foreground">
-                  Changes save to the live student assignment.
-                </p>
-                <Button
-                  variant="outline"
-                  nativeButton={false}
-                  render={
-                    <a
-                      href={buildShareUrl(draft.publication.shareToken)}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                    />
-                  }
-                >
-                  <ExternalLink size={14} aria-hidden /> Open student link
-                </Button>
                 <AttachToMiroButton
                   boards={assignedBoards}
                   title={draft.title}
@@ -359,6 +361,13 @@ export function DraftReview({
                 />
               </div>
             </section>
+          ) : (
+            /* Publishing itself lives in the header. This says what the button
+               up there will do, which the button alone cannot. */
+            <p className="text-pretty text-[12.5px] leading-5 text-muted-foreground">
+              Nothing is shared yet. Publishing creates the student link and lets you set a
+              due date.
+            </p>
           )}
 
           <section className="grid gap-3">
@@ -475,6 +484,107 @@ export function DraftReview({
         </section>
       </div>
     </div>
+
+      <Dialog
+        open={isPublishDialogOpen}
+        onOpenChange={(isOpen) => {
+          if (!isPublishing) setIsPublishDialogOpen(isOpen);
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Publish this homework</DialogTitle>
+            <DialogDescription>
+              This creates the student link. Access stays open until you close it.
+            </DialogDescription>
+          </DialogHeader>
+          <Field>
+            <FieldLabel>Who receives it</FieldLabel>
+            <StudentMultiPicker
+              students={students}
+              value={selectedStudentIds}
+              onValueChange={(studentIds) => void saveAssignees(studentIds)}
+            />
+            <FieldDescription>
+              Optional. A set is not tied to one learner — assign it to as many as you like.
+            </FieldDescription>
+          </Field>
+          <Field>
+            <FieldLabel htmlFor="draft-due-date">Due date</FieldLabel>
+            <Input
+              id="draft-due-date"
+              type="date"
+              min={todayDateInputValue()}
+              value={dueDate}
+              onChange={(event) => setDueDate(event.target.value)}
+            />
+            <FieldDescription>
+              Optional. Students see this date; it does not close the link.
+            </FieldDescription>
+          </Field>
+          {publishError ? (
+            <p
+              ref={publishErrorRef}
+              role="alert"
+              tabIndex={-1}
+              className="rounded-xl bg-critical-soft px-3.5 py-2.5 text-[12.5px] leading-5 text-destructive outline-none"
+            >
+              {publishError} Check your connection and try again.
+            </p>
+          ) : null}
+          <DialogFooter>
+            <Button
+              variant="ghost"
+              disabled={isPublishing}
+              onClick={() => setIsPublishDialogOpen(false)}
+            >
+              Cancel
+            </Button>
+            <Button disabled={isPublishing} onClick={() => void publishDraft()}>
+              {isPublishing ? "Publishing…" : "Publish & get link"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <AlertDialog
+        open={isCloseDialogOpen}
+        onOpenChange={(isOpen) => {
+          if (!isClosing) setIsCloseDialogOpen(isOpen);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Close student access?</AlertDialogTitle>
+            <AlertDialogDescription>
+              The link for “{draft.title}” stops working immediately. Work already submitted
+              stays available.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isClosing}>Keep open</AlertDialogCancel>
+            <AlertDialogAction
+              variant="danger"
+              disabled={isClosing}
+              onClick={() => void closeStudentAccess()}
+            >
+              {isClosing ? "Closing…" : "Close access"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </>
+  );
+}
+
+/** One header for every state of this page, so the title never jumps. */
+function DraftPageHeader({ action }: { action?: ReactNode }) {
+  return (
+    <PageHeader
+      title="Homework details"
+      description="Preview the student experience, edit the activities, and manage who it is assigned to."
+      action={action}
+    />
   );
 }
 
@@ -506,8 +616,14 @@ function QuestionPreview({
   onPrevious: () => void;
   onNext: () => void;
 }) {
+  /**
+   * The same conversion the student's assignment goes through, not a copy of it.
+   * A second implementation here is how error_fix activities came to preview as
+   * an empty text box: the copy had no branch for them and fell through to
+   * open_response, so the teacher saw neither the sentence nor its flagged phrase.
+   */
   const publicContent = useMemo(
-    () => toPreviewContent(question.content),
+    () => toPublicContent(question.content),
     [question.content],
   );
   const [response, setResponse] = useState(() => emptyResponse(publicContent));
@@ -616,7 +732,7 @@ function PublishedState({
 }) {
   const shareUrl = buildShareUrl(shareToken);
   return (
-    <div className="phase-enter mx-auto grid max-w-3xl gap-5 px-6 py-14 lg:px-10 xl:py-20">
+    <div className="mx-auto grid max-w-3xl gap-5 px-6 py-14 lg:px-10 xl:py-20">
       <div className="panel px-7 py-7 sm:px-10 sm:py-10">
         <div className="grid size-11 place-items-center rounded-full bg-primary-soft text-primary">
           <Check size={19} strokeWidth={2.5} aria-hidden />
@@ -680,37 +796,75 @@ function PublishedState({
   );
 }
 
+/**
+ * The review page drawn empty, column for column: the back link, the assignment
+ * panel with its goals, the activity outline, and the wizard card beside them.
+ * The real page must land in the same places it was promised.
+ */
 function DraftReviewSkeleton() {
   return (
     <div
       role="status"
       aria-busy="true"
       aria-label="Loading draft"
-      className="mx-auto grid max-w-[1580px] gap-8 px-6 py-8 lg:px-10 xl:grid-cols-[minmax(19rem,23rem)_minmax(0,1fr)] xl:gap-10 2xl:grid-cols-[minmax(22rem,26rem)_minmax(0,1fr)] 2xl:gap-14 2xl:px-12"
+      className="mx-auto w-full max-w-[1580px] px-6 py-8 lg:px-10 xl:py-10 2xl:px-12"
     >
-      <div className="grid content-start gap-7">
-        <Skeleton className="h-7 w-24 rounded-2xl" />
-        <div className="panel grid gap-3 px-5 py-5">
-          <Skeleton className="h-5 w-3/4" />
-          <Skeleton className="h-2.5 w-full" />
-          <Skeleton className="h-2.5 w-5/6" />
-          <Skeleton className="h-2.5 w-1/2" />
+      <Skeleton className="mb-5 h-7 w-24 rounded-2xl" />
+      <div className="grid gap-10 xl:grid-cols-[minmax(0,0.85fr)_minmax(0,1fr)] 2xl:gap-14">
+        <div className="grid content-start gap-7">
+          <div className="grid gap-3">
+            <Skeleton className="h-4 w-28" />
+            <div className="panel overflow-hidden">
+              <div className="grid gap-3 px-5 py-5 xl:px-6">
+                <div className="flex items-start gap-3">
+                  <Skeleton className="size-9 shrink-0 rounded-xl" />
+                  <Skeleton className="h-5 w-3/4" />
+                </div>
+                <Skeleton className="h-2.5 w-full" />
+                <Skeleton className="h-2.5 w-5/6" />
+                <Skeleton className="h-2.5 w-1/3" />
+              </div>
+              <div className="grid gap-2.5 border-t border-border/70 px-5 py-5 xl:px-6">
+                <Skeleton className="h-3 w-28" />
+                <Skeleton className="h-2.5 w-11/12" />
+                <Skeleton className="h-2.5 w-4/5" />
+                <Skeleton className="h-2.5 w-2/3" />
+              </div>
+            </div>
+          </div>
+
+          <div className="grid gap-3">
+            <Skeleton className="h-4 w-32" />
+            <div className="panel divide-y divide-border/70 overflow-hidden">
+              {Array.from({ length: 4 }, (_, index) => (
+                <div key={index} className="flex items-start gap-3 px-4 py-3 xl:px-5">
+                  <Skeleton className="mt-0.5 h-3 w-5" />
+                  <div className="min-w-0 flex-1">
+                    <Skeleton className="h-3 w-11/12" />
+                    <Skeleton className="mt-2 h-2.5 w-28" />
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
         </div>
-        <div className="panel grid gap-3 px-5 py-5">
-          <Skeleton className="h-3 w-24" />
-          <Skeleton className="h-10 w-full rounded-xl" />
-          <Skeleton className="h-10 w-full rounded-2xl" />
-        </div>
-      </div>
-      <div className="panel grid min-h-[34rem] content-start gap-4 px-6 py-6">
-        <Skeleton className="h-3 w-40" />
-        <Skeleton className="h-7 w-3/4" />
-        <Skeleton className="h-3 w-1/2" />
-        <div className="mt-4 grid gap-2.5">
-          <Skeleton className="h-13 w-full rounded-xl" />
-          <Skeleton className="h-13 w-full rounded-xl" />
-          <Skeleton className="h-13 w-full rounded-xl" />
-          <Skeleton className="h-13 w-full rounded-xl" />
+
+        <div className="min-w-0">
+          <Skeleton className="mb-3 h-4 w-32" />
+          <div className="panel grid min-h-[40rem] content-start gap-4 px-6 py-6">
+            <div className="flex items-center justify-between">
+              <Skeleton className="h-3 w-28" />
+              <Skeleton className="h-3 w-16" />
+            </div>
+            <Skeleton className="mt-4 h-3 w-24" />
+            <Skeleton className="h-7 w-3/4" />
+            <Skeleton className="h-3 w-1/2" />
+            <div className="mt-4 grid gap-2.5">
+              {Array.from({ length: 4 }, (_, index) => (
+                <Skeleton key={index} className="h-13 w-full rounded-xl" />
+              ))}
+            </div>
+          </div>
         </div>
       </div>
       <span className="sr-only">Loading draft</span>
@@ -742,39 +896,6 @@ function toHomeworkQuestion(sourceQuestion: DraftQuestion) {
     difficulty: sourceQuestion.difficulty,
     explanation: sourceQuestion.explanation,
   });
-}
-
-function toPreviewContent(
-  content: DraftQuestion["content"],
-): PublicQuestionContent {
-  if (content.kind === "multiple_choice") {
-    return { kind: "multiple_choice", choices: content.choices };
-  }
-  if (content.kind === "fill_blank") {
-    return {
-      kind: "fill_blank",
-      text: content.text,
-      blankCount: content.blanks.length,
-      hints: content.blanks.map((blank) => blank.hint ?? null),
-    };
-  }
-  if (content.kind === "select_cloze") {
-    return {
-      kind: "select_cloze",
-      text: content.text,
-      gaps: content.gaps.map((gap) => ({ options: gap.options })),
-    };
-  }
-  if (content.kind === "matching") {
-    return {
-      kind: "matching",
-      lefts: content.pairs.map((pair) => pair.left),
-      rights: content.pairs
-        .map((pair) => pair.right)
-        .toSorted((left, right) => left.localeCompare(right)),
-    };
-  }
-  return { kind: "open_response" };
 }
 
 function todayDateInputValue() {

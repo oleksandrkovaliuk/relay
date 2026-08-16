@@ -17,6 +17,7 @@ import { Route as StudentsRouteImport } from './routes/students'
 import { Route as HomeworkIndexRouteImport } from './routes/homework.index'
 import { Route as HomeworkNewRouteImport } from './routes/homework.new'
 import { Route as StudentsIndexRouteImport } from './routes/students.index'
+import { Route as SubmissionsSubmissionIdRouteImport } from './routes/submissions.$submissionId'
 import { Route as HomeworkDraftsHomeworkDraftIdRouteImport } from './routes/homework.drafts.$homeworkDraftId'
 import { Route as StudentsStudentIdHistoryRouteImport } from './routes/students.$studentId.history'
 
@@ -60,6 +61,11 @@ const StudentsIndexRoute = StudentsIndexRouteImport.update({
   path: '/',
   getParentRoute: () => StudentsRoute,
 } as any)
+const SubmissionsSubmissionIdRoute = SubmissionsSubmissionIdRouteImport.update({
+  id: '/submissions/$submissionId',
+  path: '/submissions/$submissionId',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const HomeworkDraftsHomeworkDraftIdRoute =
   HomeworkDraftsHomeworkDraftIdRouteImport.update({
     id: '/drafts/$homeworkDraftId',
@@ -80,6 +86,7 @@ export interface FileRoutesByFullPath {
   '/settings': typeof SettingsRoute
   '/students': typeof StudentsRouteWithChildren
   '/homework/new': typeof HomeworkNewRoute
+  '/submissions/$submissionId': typeof SubmissionsSubmissionIdRoute
   '/homework/': typeof HomeworkIndexRoute
   '/students/': typeof StudentsIndexRoute
   '/homework/drafts/$homeworkDraftId': typeof HomeworkDraftsHomeworkDraftIdRoute
@@ -90,6 +97,7 @@ export interface FileRoutesByTo {
   '/insights': typeof InsightsRoute
   '/settings': typeof SettingsRoute
   '/homework/new': typeof HomeworkNewRoute
+  '/submissions/$submissionId': typeof SubmissionsSubmissionIdRoute
   '/homework': typeof HomeworkIndexRoute
   '/students': typeof StudentsIndexRoute
   '/homework/drafts/$homeworkDraftId': typeof HomeworkDraftsHomeworkDraftIdRoute
@@ -103,6 +111,7 @@ export interface FileRoutesById {
   '/settings': typeof SettingsRoute
   '/students': typeof StudentsRouteWithChildren
   '/homework/new': typeof HomeworkNewRoute
+  '/submissions/$submissionId': typeof SubmissionsSubmissionIdRoute
   '/homework/': typeof HomeworkIndexRoute
   '/students/': typeof StudentsIndexRoute
   '/homework/drafts/$homeworkDraftId': typeof HomeworkDraftsHomeworkDraftIdRoute
@@ -117,6 +126,7 @@ export interface FileRouteTypes {
     | '/settings'
     | '/students'
     | '/homework/new'
+    | '/submissions/$submissionId'
     | '/homework/'
     | '/students/'
     | '/homework/drafts/$homeworkDraftId'
@@ -127,6 +137,7 @@ export interface FileRouteTypes {
     | '/insights'
     | '/settings'
     | '/homework/new'
+    | '/submissions/$submissionId'
     | '/homework'
     | '/students'
     | '/homework/drafts/$homeworkDraftId'
@@ -139,6 +150,7 @@ export interface FileRouteTypes {
     | '/settings'
     | '/students'
     | '/homework/new'
+    | '/submissions/$submissionId'
     | '/homework/'
     | '/students/'
     | '/homework/drafts/$homeworkDraftId'
@@ -151,6 +163,7 @@ export interface RootRouteChildren {
   InsightsRoute: typeof InsightsRoute
   SettingsRoute: typeof SettingsRoute
   StudentsRoute: typeof StudentsRouteWithChildren
+  SubmissionsSubmissionIdRoute: typeof SubmissionsSubmissionIdRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -211,6 +224,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof StudentsIndexRouteImport
       parentRoute: typeof StudentsRoute
     }
+    '/submissions/$submissionId': {
+      id: '/submissions/$submissionId'
+      path: '/submissions/$submissionId'
+      fullPath: '/submissions/$submissionId'
+      preLoaderRoute: typeof SubmissionsSubmissionIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/homework/drafts/$homeworkDraftId': {
       id: '/homework/drafts/$homeworkDraftId'
       path: '/drafts/$homeworkDraftId'
@@ -264,6 +284,7 @@ const rootRouteChildren: RootRouteChildren = {
   InsightsRoute: InsightsRoute,
   SettingsRoute: SettingsRoute,
   StudentsRoute: StudentsRouteWithChildren,
+  SubmissionsSubmissionIdRoute: SubmissionsSubmissionIdRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
