@@ -27,11 +27,9 @@ mac:
       arch: [arm64, x64]
     - target: zip
       arch: [arm64, x64]
-  # Ad-hoc signing. Apple Silicon rejects a bundle whose signature does not cover
-  # its contents — reported to the user as "Relay.app is damaged" — and without an
-  # identity electron-builder leaves Electron's own linker-signed stub in place.
-  # Replace with a Developer ID to get an installable, notarizable build.
-  identity: "-"
+  # Production builds discover a Developer ID identity from CSC_LINK. The release
+  # workflow explicitly falls back to ad-hoc signing while those credentials are
+  # unavailable, which keeps Apple Silicon builds internally consistent.
   hardenedRuntime: true
   entitlements: build/entitlements.mac.plist
   entitlementsInherit: build/entitlements.mac.plist
@@ -60,4 +58,4 @@ linux:
 publish:
   provider: github
   owner: oleksandrkovaliuk
-  repo: erm
+  repo: relay
