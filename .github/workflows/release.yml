@@ -34,12 +34,14 @@ jobs:
           node-version: 24
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      - run: pnpm build
 
       # Notarization stays off in electron-builder.yml so local builds are fast and
       # offline; it is switched on here only when the Apple credentials exist.
       - name: Build and publish
         run: >
           pnpm exec electron-builder ${{ matrix.target }} --publish always
+          ${{ matrix.os == 'macos-15' && secrets.CSC_LINK == '' && '--config.mac.identity=-' || '' }}
           ${{ matrix.os == 'macos-15' && secrets.APPLE_ID != '' && '--config.mac.notarize=true' || '' }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
