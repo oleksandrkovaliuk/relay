@@ -175,6 +175,10 @@ describe("assignments", () => {
         points: 4,
         difficulty: "hard",
         explanation: "The earlier past event takes the past perfect.",
+        set: {
+          title: "Order the past",
+          task: "Choose every form that correctly places the earlier event.",
+        },
       },
     });
 
@@ -187,6 +191,10 @@ describe("assignments", () => {
       points: 4,
       difficulty: "hard",
       content: { choices: ["had already left", "already left", "has already left"] },
+      set: {
+        title: "Order the past",
+        task: "Choose every form that correctly places the earlier event.",
+      },
     });
     expect(
       revisedDraft?.questions
@@ -197,6 +205,10 @@ describe("assignments", () => {
       prompt: "Choose the only natural past-perfect sentence.",
       points: 4,
       content: { choices: ["had already left", "already left", "has already left"] },
+      set: {
+        title: "Order the past",
+        task: "Choose every form that correctly places the earlier event.",
+      },
     });
   });
 

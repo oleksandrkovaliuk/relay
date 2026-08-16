@@ -505,6 +505,7 @@ export const replaceQuestion = mutation({
       points: args.question.points,
       difficulty: args.question.difficulty,
       explanation: args.question.explanation.trim(),
+      set: args.question.set,
     };
     if (!fields.prompt || !fields.instructions || !fields.explanation) {
       throw new Error("The revised activity is incomplete.");

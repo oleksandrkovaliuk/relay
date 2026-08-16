@@ -46,3 +46,16 @@ describe("error_fix answers", () => {
     expect(isAnswerComplete({ kind: "text", text: "ran" })).toBe(true);
   });
 });
+
+describe("multiple-choice answers", () => {
+  it("starts as a multi-select response and completes after any option is selected", () => {
+    const response = emptyResponse({
+      kind: "multiple_choice",
+      choices: ["Past simple", "Present perfect", "Past perfect"],
+    });
+
+    expect(response).toEqual({ kind: "choices", choiceIndices: [] });
+    expect(isAnswerComplete(response)).toBe(false);
+    expect(isAnswerComplete({ kind: "choices", choiceIndices: [0, 2] })).toBe(true);
+  });
+});

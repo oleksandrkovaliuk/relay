@@ -4,7 +4,8 @@ export const questionContentValidator = v.union(
   v.object({
     kind: v.literal("multiple_choice"),
     choices: v.array(v.string()),
-    correctChoice: v.number(),
+    correctChoices: v.optional(v.array(v.number())),
+    correctChoice: v.optional(v.number()),
     /**
      * What happened before what, shown with the answer. Two or more beats in
      * chronological order turn "wrong tense" into a picture of the timeline.
@@ -103,6 +104,7 @@ export const publicQuestionContentValidator = v.union(
 
 export const answerResponseValidator = v.union(
   v.object({ kind: v.literal("choice"), choiceIndex: v.number() }),
+  v.object({ kind: v.literal("choices"), choiceIndices: v.array(v.number()) }),
   v.object({ kind: v.literal("blanks"), values: v.array(v.string()) }),
   v.object({ kind: v.literal("matches"), rights: v.array(v.string()) }),
   v.object({ kind: v.literal("selections"), selectedOptions: v.array(v.number()) }),
@@ -226,11 +228,28 @@ function correctnessFromFraction(fraction: number): Correctness {
   return "partial";
 }
 
+export function correctChoiceIndices(
+  content: Extract<QuestionContent, { kind: "multiple_choice" }>,
+) {
+  const configuredChoices = content.correctChoices ?? [];
+  if (configuredChoices.length > 0) return [...new Set(configuredChoices)];
+  return content.correctChoice === undefined ? [] : [content.correctChoice];
+}
+
+function selectedChoiceIndices(response: AnswerResponse) {
+  if (response.kind === "choices") return [...new Set(response.choiceIndices)];
+  if (response.kind === "choice" && response.choiceIndex >= 0) return [response.choiceIndex];
+  return [];
+}
+
 function gradedFraction(content: QuestionContent, response: AnswerResponse) {
   if (content.kind === "multiple_choice") {
-    const isChosenCorrect =
-      response.kind === "choice" && response.choiceIndex === content.correctChoice;
-    return isChosenCorrect ? 1 : 0;
+    const expectedChoices = new Set(correctChoiceIndices(content));
+    if (expectedChoices.size === 0) return 0;
+    const selectedChoices = selectedChoiceIndices(response);
+    const selectedCorrectly = selectedChoices.filter((choice) => expectedChoices.has(choice)).length;
+    const selectedIncorrectly = selectedChoices.length - selectedCorrectly;
+    return Math.max(0, (selectedCorrectly - selectedIncorrectly) / expectedChoices.size);
   }
   if (content.kind === "fill_blank") {
     const values = response.kind === "blanks" ? response.values : [];
@@ -277,6 +296,12 @@ export function gradeResponse(
 }
 
 export function describeResponse(response: AnswerResponse, content: QuestionContent) {
+  if (response.kind === "choices") {
+    if (content.kind !== "multiple_choice") return response.choiceIndices.join(" · ");
+    return response.choiceIndices
+      .map((choiceIndex) => content.choices[choiceIndex] ?? `Choice ${choiceIndex + 1}`)
+      .join(" · ");
+  }
   if (response.kind === "choice") {
     if (content.kind !== "multiple_choice") return `Choice ${response.choiceIndex + 1}`;
     return content.choices[response.choiceIndex] ?? `Choice ${response.choiceIndex + 1}`;
@@ -300,7 +325,12 @@ export function describeResponse(response: AnswerResponse, content: QuestionCont
 export function describeCorrectAnswer(content: QuestionContent) {
   switch (content.kind) {
     case "multiple_choice":
-      return content.choices[content.correctChoice] ?? null;
+      return (
+        correctChoiceIndices(content)
+          .map((choiceIndex) => content.choices[choiceIndex])
+          .filter((choice): choice is string => choice !== undefined)
+          .join(" · ") || null
+      );
     case "fill_blank":
       return content.blanks.map((blank) => blank.acceptedAnswers[0] ?? "").join(" · ");
     case "matching":
@@ -325,6 +355,17 @@ export function gradeResponseParts(
   content: QuestionContent,
   response: AnswerResponse,
 ): { label: string; given: string; expected: string; isCorrect: boolean; reason: string | null }[] {
+  if (content.kind === "multiple_choice") {
+    const selectedChoices = new Set(selectedChoiceIndices(response));
+    const expectedChoices = new Set(correctChoiceIndices(content));
+    return content.choices.map((choice, index) => ({
+      label: choice,
+      given: selectedChoices.has(index) ? "Selected" : "Not selected",
+      expected: expectedChoices.has(index) ? "Select" : "Do not select",
+      isCorrect: selectedChoices.has(index) === expectedChoices.has(index),
+      reason: null,
+    }));
+  }
   if (content.kind === "fill_blank" && response.kind === "blanks") {
     return content.blanks.map((blank, index) => {
       const given = response.values[index] ?? "";

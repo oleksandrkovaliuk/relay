@@ -71,6 +71,25 @@ describe("generated homework is accepted even when it overshoots the brief", () 
     expect(result.success).toBe(true);
   });
 
+  it("accepts several correct choices and rejects an activity without an answer key", () => {
+    expect(
+      homeworkQuestionSchema.safeParse({
+        ...QUESTION,
+        content: {
+          kind: "multiple_choice",
+          choices: ["has lived", "has been living", "lived"],
+          correctChoices: [0, 1],
+        },
+      }).success,
+    ).toBe(true);
+    expect(
+      homeworkQuestionSchema.safeParse({
+        ...QUESTION,
+        content: { kind: "multiple_choice", choices: ["has lived", "lived"] },
+      }).success,
+    ).toBe(false);
+  });
+
   it("keeps a two-gap passage", () => {
     const result = homeworkQuestionSchema.safeParse({
       ...QUESTION,

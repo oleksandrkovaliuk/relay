@@ -17,6 +17,39 @@ const proofreadContent: QuestionContent = {
   ],
 };
 
+const multipleChoiceContent: QuestionContent = {
+  kind: "multiple_choice",
+  choices: ["has lived", "lived", "has been living", "lives"],
+  correctChoices: [0, 2],
+};
+
+describe("multiple-choice content", () => {
+  test("grades all selected answers and penalizes incorrect selections", () => {
+    expect(
+      gradeResponse(multipleChoiceContent, { kind: "choices", choiceIndices: [0, 2] }, 4),
+    ).toEqual({ correctness: "correct", pointsAwarded: 4 });
+    expect(
+      gradeResponse(multipleChoiceContent, { kind: "choices", choiceIndices: [0] }, 4),
+    ).toEqual({ correctness: "partial", pointsAwarded: 2 });
+    expect(
+      gradeResponse(multipleChoiceContent, { kind: "choices", choiceIndices: [0, 1] }, 4),
+    ).toEqual({ correctness: "incorrect", pointsAwarded: 0 });
+  });
+
+  test("keeps legacy single-answer activities gradable", () => {
+    const legacyContent: QuestionContent = {
+      kind: "multiple_choice",
+      choices: ["went", "goed"],
+      correctChoice: 0,
+    };
+
+    expect(gradeResponse(legacyContent, { kind: "choice", choiceIndex: 0 }, 2)).toEqual({
+      correctness: "correct",
+      pointsAwarded: 2,
+    });
+  });
+});
+
 describe("proofread content", () => {
   test("never sends the corrections to the student", () => {
     const published = toPublicContent(proofreadContent);

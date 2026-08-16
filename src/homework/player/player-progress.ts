@@ -131,6 +131,11 @@ function isAnswerResponse(value: unknown): value is AnswerResponse {
   switch (value.kind) {
     case "choice":
       return typeof value.choiceIndex === "number" && Number.isInteger(value.choiceIndex);
+    case "choices":
+      return (
+        Array.isArray(value.choiceIndices) &&
+        value.choiceIndices.every((choice) => Number.isInteger(choice))
+      );
     case "blanks":
       return isStringArray(value.values);
     case "matches":
@@ -181,10 +186,15 @@ function isStoredPlayerProgress(value: unknown): value is StoredPlayerProgress {
 function isResponseCompatible(question: PlayerQuestion, response: AnswerResponse) {
   switch (question.content.kind) {
     case "multiple_choice":
+      if (response.kind === "choice") {
+        return response.choiceIndex >= -1 && response.choiceIndex < question.content.choices.length;
+      }
+      const { choices } = question.content;
       return (
-        response.kind === "choice" &&
-        response.choiceIndex >= -1 &&
-        response.choiceIndex < question.content.choices.length
+        response.kind === "choices" &&
+        response.choiceIndices.every(
+          (choiceIndex) => choiceIndex >= 0 && choiceIndex < choices.length,
+        )
       );
     case "fill_blank":
       return response.kind === "blanks" && response.values.length === question.content.blankCount;
