@@ -9,9 +9,12 @@ import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync } 
 import { spawn } from "node:child_process";
 import { basename, join, sep } from "node:path";
 import { tmpdir } from "node:os";
+import { fileURLToPath } from "node:url";
 
 const SMOKE_TEST_TIMEOUT_MS = 90_000;
-const DIST_DIRECTORY = new URL("../dist/", import.meta.url).pathname;
+// `fileURLToPath`, not `URL.pathname`: on Windows the latter yields `/D:/a/...`, which no
+// filesystem call resolves, so the whole search silently found nothing.
+const DIST_DIRECTORY = fileURLToPath(new URL("../dist/", import.meta.url));
 
 /**
  * Linux build agents have no GPU and no setuid sandbox helper, so Electron aborts on
@@ -86,24 +89,24 @@ function findPackagedExecutable() {
   if (!archivePath) return undefined;
 
   const manifest = JSON.parse(
-    readFileSync(new URL("../package.json", import.meta.url), "utf8"),
+    readFileSync(fileURLToPath(new URL("../package.json", import.meta.url)), "utf8"),
   );
 
   // macOS: <root>/Relay.app/Contents/Resources/app.asar
   const macResources = `${sep}Contents${sep}Resources${sep}app.asar`;
   if (archivePath.endsWith(macResources)) {
     const appBundle = archivePath.slice(0, -macResources.length);
-    return expect(join(appBundle, "Contents", "MacOS", manifest.productName));
+    return requireLauncher(join(appBundle, "Contents", "MacOS", manifest.productName));
   }
 
   // Windows and Linux: <root>/resources/app.asar, launcher directly in <root>.
   const appRoot = join(archivePath, "..", "..");
   const launcherName =
     process.platform === "win32" ? `${manifest.productName}.exe` : manifest.name;
-  return expect(join(appRoot, launcherName));
+  return requireLauncher(join(appRoot, launcherName));
 }
 
-function expect(executablePath) {
+function requireLauncher(executablePath) {
   if (existsSync(executablePath)) return executablePath;
 
   const directory = join(executablePath, "..");
