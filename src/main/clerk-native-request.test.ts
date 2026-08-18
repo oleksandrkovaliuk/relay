@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { withoutBrowserOriginForNativeClerkRequest } from "./clerk-native-request";
 
 describe("withoutBrowserOriginForNativeClerkRequest", () => {
-  it("removes Chromium's origin from authenticated native Clerk requests", () => {
+  it("removes Chromium's origin from native Clerk requests", () => {
     expect(
       withoutBrowserOriginForNativeClerkRequest(
         "https://clerk.relay.democrat/v1/client?_is_native=1",
@@ -31,12 +31,23 @@ describe("withoutBrowserOriginForNativeClerkRequest", () => {
     ).toEqual({ authorization: "Bearer client-jwt" });
   });
 
-  it("leaves browser and unauthenticated requests unchanged", () => {
+  it("removes the origin before Clerk has issued a native client JWT", () => {
+    expect(
+      withoutBrowserOriginForNativeClerkRequest(
+        "https://clerk.relay.democrat/v1/environment?_is_native=1",
+        {
+          Origin: "http://localhost:5173",
+          Accept: "application/json",
+        },
+      ),
+    ).toEqual({ Accept: "application/json" });
+  });
+
+  it("leaves browser requests unchanged", () => {
     const browserHeaders = {
       Authorization: "Bearer session-token",
       Origin: "relay://renderer",
     };
-    const unauthenticatedHeaders = { Origin: "relay://renderer" };
 
     expect(
       withoutBrowserOriginForNativeClerkRequest(
@@ -44,11 +55,5 @@ describe("withoutBrowserOriginForNativeClerkRequest", () => {
         browserHeaders,
       ),
     ).toBe(browserHeaders);
-    expect(
-      withoutBrowserOriginForNativeClerkRequest(
-        "https://clerk.relay.democrat/v1/client?_is_native=1",
-        unauthenticatedHeaders,
-      ),
-    ).toBe(unauthenticatedHeaders);
   });
 });

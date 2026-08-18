@@ -11,10 +11,9 @@ export function withoutBrowserOriginForNativeClerkRequest(
 ) {
   const url = new URL(requestUrl);
   const isNativeClerkRequest = url.searchParams.get("_is_native") === "1";
-  const authorizationHeader = findHeaderName(requestHeaders, "authorization");
   const originHeader = findHeaderName(requestHeaders, "origin");
 
-  if (!isNativeClerkRequest || !authorizationHeader || !originHeader) return requestHeaders;
+  if (!isNativeClerkRequest || !originHeader) return requestHeaders;
 
   const headersWithoutOrigin = { ...requestHeaders };
   delete headersWithoutOrigin[originHeader];

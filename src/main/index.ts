@@ -17,6 +17,7 @@ import {
   RENDERER_HOST,
   RENDERER_SCHEME,
   RENDERER_URL,
+  resolveRendererDevelopmentUrl,
   resolveRendererFilePath,
 } from "./renderer-protocol";
 
@@ -52,6 +53,10 @@ function createWindow() {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
+      // Clerk's native transport deliberately omits browser Origin semantics. Chromium still
+      // applies CORS to Vite's proxied development renderer before Electron can adjust headers.
+      // Packaged builds keep web security enabled.
+      webSecurity: app.isPackaged,
     },
   });
 
@@ -79,16 +84,18 @@ function createWindow() {
     return { action: "deny" };
   });
 
-  if (!app.isPackaged && process.env.ELECTRON_RENDERER_URL) {
-    void mainWindow.loadURL(process.env.ELECTRON_RENDERER_URL);
-    return;
-  }
-
   void mainWindow.loadURL(RENDERER_URL);
 }
 
 function registerRendererProtocol() {
   protocol.handle(RENDERER_SCHEME, (request) => {
+    const developmentServerUrl = !app.isPackaged ? process.env.ELECTRON_RENDERER_URL : undefined;
+    if (developmentServerUrl) {
+      const developmentUrl = resolveRendererDevelopmentUrl(request.url, developmentServerUrl);
+      if (!developmentUrl) return new Response(null, { status: 404 });
+      return net.fetch(developmentUrl);
+    }
+
     const rendererDirectory = join(__dirname, "../renderer");
     const rendererFilePath = resolveRendererFilePath(request.url, rendererDirectory);
     if (!rendererFilePath) return new Response(null, { status: 404 });
