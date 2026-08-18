@@ -7,7 +7,7 @@
  */
 import { existsSync, mkdtempSync, readdirSync, rmSync, statSync } from "node:fs";
 import { spawn } from "node:child_process";
-import { basename, join } from "node:path";
+import { basename, join, sep } from "node:path";
 import { tmpdir } from "node:os";
 
 const SMOKE_TEST_TIMEOUT_MS = 90_000;
@@ -74,19 +74,48 @@ function runSmokeTest(command, userDataDir) {
   });
 }
 
+/**
+ * Anchors on `app.asar`, which every platform's layout contains, instead of guessing the
+ * executable's name. electron-builder derives that name differently per platform — macOS
+ * and Windows use `productName`, Linux uses the package `name` — so a hardcoded guess
+ * silently found nothing on Linux.
+ */
 function findPackagedExecutable() {
-  const paths = walk(DIST_DIRECTORY);
+  const archivePath = newest(walk(DIST_DIRECTORY).filter((path) => basename(path) === "app.asar"));
+  if (!archivePath) return undefined;
 
-  if (process.platform === "darwin") {
-    const appBundle = newest(paths.filter((path) => basename(path) === "Relay.app"));
-    return appBundle ? join(appBundle, "Contents", "MacOS", "Relay") : undefined;
+  // macOS: <root>/Relay.app/Contents/Resources/app.asar, and the launcher is the single
+  // entry in Contents/MacOS.
+  const macResources = `${sep}Contents${sep}Resources${sep}app.asar`;
+  if (archivePath.endsWith(macResources)) {
+    const appBundle = archivePath.slice(0, -macResources.length);
+    const launcherDirectory = join(appBundle, "Contents", "MacOS");
+    const launcher = readdirSync(launcherDirectory, { withFileTypes: true }).find((entry) =>
+      entry.isFile(),
+    );
+    return launcher ? join(launcherDirectory, launcher.name) : undefined;
   }
+
+  // Windows and Linux: <root>/resources/app.asar, with the executable directly in <root>.
+  const appRoot = join(archivePath, "..", "..");
+  const candidates = readdirSync(appRoot, { withFileTypes: true })
+    .filter((entry) => entry.isFile())
+    .map((entry) => entry.name);
+
   if (process.platform === "win32") {
-    return newest(paths.filter((path) => basename(path).toLowerCase() === "relay.exe"));
+    const executable = candidates.find((name) => name.toLowerCase().endsWith(".exe"));
+    return executable ? join(appRoot, executable) : undefined;
   }
-  return newest(
-    paths.filter((path) => basename(path).toLowerCase() === "relay" && statSync(path).isFile()),
+
+  // `chrome-sandbox` is the setuid helper, not the app; shared objects carry an extension.
+  const executable = candidates.find(
+    (name) => name !== "chrome-sandbox" && !name.includes(".") && isExecutable(join(appRoot, name)),
   );
+  return executable ? join(appRoot, executable) : undefined;
+}
+
+function isExecutable(path) {
+  return (statSync(path).mode & 0o111) !== 0;
 }
 
 /** Several `dir` builds can accumulate in `dist/`; the freshest is the one under test. */
