@@ -4,13 +4,14 @@ import { pathToFileURL } from "node:url";
 
 import { createClerkBridge } from "@clerk/electron";
 import { storage as createClerkStorage } from "@clerk/electron/storage";
-import { app, BrowserWindow, nativeImage, net, protocol, shell } from "electron";
+import { app, BrowserWindow, nativeImage, net, protocol, session, shell } from "electron";
 
 import { ClaudeConnectionStore } from "./claude/claude-connections";
 import { ClaudeService } from "./claude/claude-service";
 import { registerClaudeConnectionIpc } from "./claude/register-claude-connection-ipc";
 import { registerClaudeIpc } from "./claude/register-claude-ipc";
 import { resolveClaudeExecutable } from "./claude/resolve-claude-executable";
+import { withoutBrowserOriginForNativeClerkRequest } from "./clerk-native-request";
 import { registerNotificationIpc } from "./notifications/register-notification-ipc";
 import {
   RENDERER_HOST,
@@ -96,6 +97,17 @@ function registerRendererProtocol() {
   });
 }
 
+function registerNativeClerkRequestHeaders() {
+  session.defaultSession.webRequest.onBeforeSendHeaders((details, callback) => {
+    callback({
+      requestHeaders: withoutBrowserOriginForNativeClerkRequest(
+        details.url,
+        details.requestHeaders,
+      ),
+    });
+  });
+}
+
 const DEVELOPMENT_INSPECT_PORT = "9222";
 const LEGACY_USER_DATA_PATH = app.getPath("userData");
 
@@ -125,6 +137,7 @@ function startPrimaryInstance() {
     // Keep the legacy identifier so existing Windows notification permissions remain valid.
     app.setAppUserModelId("com.erm.teacher");
     registerRendererProtocol();
+    registerNativeClerkRequestHeaders();
     // In development the dock shows Electron's own icon unless it is replaced.
     const dockIcon = loadAppIcon();
     if (dockIcon && process.platform === "darwin") app.dock?.setIcon(dockIcon);
