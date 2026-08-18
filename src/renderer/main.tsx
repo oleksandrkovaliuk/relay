@@ -1,4 +1,4 @@
-import { ClerkProvider, useAuth } from "@clerk/react";
+import { ClerkProvider, useAuth } from "@clerk/electron/react";
 import { RouterProvider } from "@tanstack/react-router";
 import {
   AuthLoading,
@@ -31,19 +31,9 @@ if (!clerkPublishableKey) {
 }
 
 const convex = new ConvexReactClient(convexUrl);
-const relayOAuthTransport = {
-  getRedirectUrl: async () => getRelayAuthDesktopApi().getRelayAuthRedirectUrl(),
-  open: async (url: URL) => ({
-    callbackUrl: await getRelayAuthDesktopApi().openRelayAuthAuthorization(url.toString()),
-  }),
-};
-
 createRoot(rootElement).render(
   <StrictMode>
-    <ClerkProvider
-      publishableKey={clerkPublishableKey}
-      __internal_oauthTransport={relayOAuthTransport}
-    >
+    <ClerkProvider publishableKey={clerkPublishableKey}>
       <AuthenticatedRelayApp />
     </ClerkProvider>
   </StrictMode>,
@@ -72,11 +62,4 @@ function AuthenticatedRelayApp() {
       </ConvexQueryCacheProvider>
     </ConvexProviderWithClerk>
   );
-}
-
-function getRelayAuthDesktopApi() {
-  if (!window.relayAuth) {
-    throw new Error("Relay's desktop authentication bridge is unavailable.");
-  }
-  return window.relayAuth;
 }

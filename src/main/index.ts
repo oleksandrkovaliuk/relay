@@ -1,16 +1,23 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
+import { pathToFileURL } from "node:url";
 
-import { app, BrowserWindow, nativeImage, shell } from "electron";
+import { createClerkBridge } from "@clerk/electron";
+import { storage as createClerkStorage } from "@clerk/electron/storage";
+import { app, BrowserWindow, nativeImage, net, protocol, shell } from "electron";
 
-import { registerRelayAuthIpc } from "./auth/register-relay-auth-ipc";
-import { RelayAuthService } from "./auth/relay-auth-service";
 import { ClaudeConnectionStore } from "./claude/claude-connections";
 import { ClaudeService } from "./claude/claude-service";
 import { registerClaudeConnectionIpc } from "./claude/register-claude-connection-ipc";
 import { registerClaudeIpc } from "./claude/register-claude-ipc";
 import { resolveClaudeExecutable } from "./claude/resolve-claude-executable";
 import { registerNotificationIpc } from "./notifications/register-notification-ipc";
+import {
+  RENDERER_HOST,
+  RENDERER_SCHEME,
+  RENDERER_URL,
+  resolveRendererFilePath,
+} from "./renderer-protocol";
 
 /**
  * Packaged, `resources/` is copied beside the asar archive rather than into it, so
@@ -76,16 +83,17 @@ function createWindow() {
     return;
   }
 
-  void mainWindow.loadFile(join(__dirname, "../renderer/index.html"));
+  void mainWindow.loadURL(RENDERER_URL);
 }
 
-function focusRelayWindow() {
-  const [mainWindow] = BrowserWindow.getAllWindows();
-  if (!mainWindow) return;
-  if (mainWindow.isMinimized()) mainWindow.restore();
-  mainWindow.show();
-  mainWindow.focus();
-  if (process.platform === "darwin") app.focus({ steal: true });
+function registerRendererProtocol() {
+  protocol.handle(RENDERER_SCHEME, (request) => {
+    const rendererDirectory = join(__dirname, "../renderer");
+    const rendererFilePath = resolveRendererFilePath(request.url, rendererDirectory);
+    if (!rendererFilePath) return new Response(null, { status: 404 });
+    const rendererFileUrl = pathToFileURL(rendererFilePath);
+    return net.fetch(rendererFileUrl.toString());
+  });
 }
 
 const DEVELOPMENT_INSPECT_PORT = "9222";
@@ -98,49 +106,59 @@ app.setName("Relay");
 app.setAboutPanelOptions({ applicationName: "Relay", applicationVersion: app.getVersion() });
 app.setPath("userData", LEGACY_USER_DATA_PATH);
 
+const clerkBridge = createClerkBridge({
+  renderer: { scheme: RENDERER_SCHEME, host: RENDERER_HOST },
+  storage: createClerkStorage({ path: app.getPath("userData") }),
+  userAgent: `Relay/${app.getVersion()}`,
+});
+
 if (!app.isPackaged) {
   app.commandLine.appendSwitch("remote-debugging-port", DEVELOPMENT_INSPECT_PORT);
 }
 
-app.whenReady().then(() => {
-  // Keep the legacy identifier so existing Windows notification permissions remain valid.
-  app.setAppUserModelId("com.erm.teacher");
-  // In development the dock shows Electron's own icon unless it is replaced.
-  const dockIcon = loadAppIcon();
-  if (dockIcon && process.platform === "darwin") app.dock?.setIcon(dockIcon);
-  const connections = new ClaudeConnectionStore({
-    stateFilePath: join(app.getPath("userData"), "claude-connections.json"),
-    configRootPath: join(app.getPath("userData"), "claude-configs"),
-  });
-  const relayAuthService = new RelayAuthService({
-    onSignInCompleted: focusRelayWindow,
-  });
-  registerRelayAuthIpc(relayAuthService);
-  const claudeService = new ClaudeService({
-    workingDirectory: join(app.getPath("userData"), "ai-workspace"),
-    openExternal: (url) => shell.openExternal(url),
-    resolveConfigDir: () => connections.activeConfigDir(),
-  });
-  registerClaudeIpc(claudeService);
-  registerClaudeConnectionIpc({
-    connections,
-    resolveExecutablePath: () => resolveClaudeExecutable({ environment: process.env }),
-    environment: process.env,
-  });
-  registerNotificationIpc();
-  createWindow();
+if (clerkBridge.isPrimaryInstance) {
+  startPrimaryInstance();
+}
 
-  app.on("activate", () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow();
+function startPrimaryInstance() {
+  app.whenReady().then(() => {
+    // Keep the legacy identifier so existing Windows notification permissions remain valid.
+    app.setAppUserModelId("com.erm.teacher");
+    registerRendererProtocol();
+    // In development the dock shows Electron's own icon unless it is replaced.
+    const dockIcon = loadAppIcon();
+    if (dockIcon && process.platform === "darwin") app.dock?.setIcon(dockIcon);
+    const connections = new ClaudeConnectionStore({
+      stateFilePath: join(app.getPath("userData"), "claude-connections.json"),
+      configRootPath: join(app.getPath("userData"), "claude-configs"),
+    });
+    const claudeService = new ClaudeService({
+      workingDirectory: join(app.getPath("userData"), "ai-workspace"),
+      openExternal: (url) => shell.openExternal(url),
+      resolveConfigDir: () => connections.activeConfigDir(),
+    });
+    registerClaudeIpc(claudeService);
+    registerClaudeConnectionIpc({
+      connections,
+      resolveExecutablePath: () => resolveClaudeExecutable({ environment: process.env }),
+      environment: process.env,
+    });
+    registerNotificationIpc();
+    createWindow();
+
+    app.on("activate", () => {
+      if (BrowserWindow.getAllWindows().length === 0) createWindow();
+    });
+
+    // A quit must take the Claude child processes with it, or they keep running —
+    // and keep their memory — with nothing left to receive the answer.
+    app.on("before-quit", () => {
+      clerkBridge.cleanup();
+      void claudeService.cancelAllRequests().catch(() => undefined);
+    });
   });
 
-  // A quit must take the Claude child processes with it, or they keep running —
-  // and keep their memory — with nothing left to receive the answer.
-  app.on("before-quit", () => {
-    void claudeService.cancelAllRequests().catch(() => undefined);
+  app.on("window-all-closed", () => {
+    if (process.platform !== "darwin") app.quit();
   });
-});
-
-app.on("window-all-closed", () => {
-  if (process.platform !== "darwin") app.quit();
-});
+}

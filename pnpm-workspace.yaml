@@ -1,13 +1,21 @@
 packages: []
 
 allowBuilds:
+  browser-tabs-lock: false
+  bufferutil: false
+  core-js: false
   electron: true
   # Windows installer helper; nothing to build for a macOS release.
   electron-winstaller: false
   esbuild: true
+  utf-8-validate: false
 
 minimumReleaseAgeExclude:
   - '@tanstack/react-router@1.170.25'
   - '@tanstack/router-core@1.171.21'
   - '@tanstack/router-generator@1.167.27'
   - '@tanstack/router-plugin@1.168.29'
+  - '@clerk/clerk-js@6.29.2'
+  - '@clerk/electron@0.0.33'
+  - '@clerk/react@6.14.4'
+  - '@clerk/shared@4.29.2'

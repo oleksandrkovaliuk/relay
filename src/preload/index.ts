@@ -1,10 +1,5 @@
+import { exposeClerkBridge } from "@clerk/electron/preload";
 import { contextBridge, ipcRenderer } from "electron";
-
-import {
-  RELAY_AUTH_IPC_CHANNELS,
-  relayAuthUrlSchema,
-  type RelayAuthDesktopApi,
-} from "@/shared/relay-auth";
 
 import {
   addClaudeConnectionSchema,
@@ -134,20 +129,4 @@ const desktopApi: TeacherDesktopApi = {
 };
 
 contextBridge.exposeInMainWorld("desktop", desktopApi);
-
-const relayAuthApi: RelayAuthDesktopApi = {
-  async getRelayAuthRedirectUrl() {
-    const result: unknown = await ipcRenderer.invoke(RELAY_AUTH_IPC_CHANNELS.getRedirectUrl);
-    return relayAuthUrlSchema.parse(result);
-  },
-  async openRelayAuthAuthorization(unsafeUrl) {
-    const authorizationUrl = relayAuthUrlSchema.parse(unsafeUrl);
-    const result: unknown = await ipcRenderer.invoke(
-      RELAY_AUTH_IPC_CHANNELS.openAuthorization,
-      authorizationUrl,
-    );
-    return relayAuthUrlSchema.parse(result);
-  },
-};
-
-contextBridge.exposeInMainWorld("relayAuth", relayAuthApi);
+exposeClerkBridge();

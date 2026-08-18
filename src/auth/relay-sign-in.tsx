@@ -1,4 +1,4 @@
-import { SignIn } from "@clerk/react";
+import { SignIn } from "@clerk/electron/react";
 
 import { RelayLogo } from "@/components/relay-logo";
 

@@ -5,9 +5,9 @@ import { readLastRoute } from "@/lib/last-route";
 import { routeTree } from "./routeTree.gen";
 
 /**
- * The packaged renderer is loaded from a `file:` URL, where there is no
- * meaningful address to push to. Memory history keeps navigation identical in
- * development and in the shipped app; `readLastRoute` restores the last page.
+ * The packaged renderer uses a local protocol only as a secure Clerk origin.
+ * Memory history keeps navigation identical in development and in the shipped
+ * app; `readLastRoute` restores the last page.
  */
 export const router = createRouter({
   routeTree,
