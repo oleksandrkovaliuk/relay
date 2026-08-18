@@ -1,6 +1,6 @@
 import { useMutation } from "convex/react";
 import { useQuery } from "convex-helpers/react/cache";
-import { ArrowLeft, ArrowRight, Check, Copy, ExternalLink } from "lucide-react";
+import { ArrowLeft, ArrowRight, Check, Copy, ExternalLink, ListChecks, Trash2 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
 import { api } from "@convex/_generated/api";
@@ -33,9 +33,16 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn, humanizeIdentifier } from "@/lib/utils";
 import { buildShareUrl, isPlayerPublished } from "@/lib/share-links";
-import { emptyResponse } from "@/homework/player/answer-types";
+import { Switch } from "@/components/ui/switch";
+import { FieldTitle } from "@/components/ui/field";
+import {
+  emptyResponse,
+  groupQuestionsIntoSections,
+  type QuestionSection,
+} from "@/homework/player/answer-types";
 import { HomeworkWizard } from "@/homework/player/homework-wizard";
 import { PromptContent } from "@/homework/player/prompt-content";
+import { ReferenceRules, type ReferenceRule } from "@/homework/player/reference-rules";
 import { QuestionWidget } from "@/homework/player/question-widgets";
 import { HomeworkGlyph } from "@/homework/homework-glyph";
 import { AttachToMiroButton } from "@/homework/assignment/attach-to-miro-button";
@@ -50,6 +57,8 @@ type Draft = NonNullable<
 type DraftQuestion = Draft["questions"][number];
 
 const SUMMARY_CLAMP_LENGTH = 260;
+/** Deleting is paged; this is the ceiling on how many pages to walk. */
+const MAXIMUM_DELETE_PASSES = 40;
 const VISIBLE_GOAL_COUNT = 3;
 
 export function DraftReview({
@@ -72,6 +81,9 @@ export function DraftReview({
   const closeAssignment = useMutation(api.assignments.close);
   const replaceQuestion = useMutation(api.assignments.replaceQuestion);
   const setAssignees = useMutation(api.assignments.setAssignees);
+  const setSelfCheck = useMutation(api.assignments.setSelfCheck);
+  const reopenAssignment = useMutation(api.assignments.reopen);
+  const removeHomework = useMutation(api.assignments.remove);
   const [selectedQuestionIndex, setSelectedQuestionIndex] = useState(0);
   const [previewMode, setPreviewMode] = useState<PreviewMode>("student");
   const [dueDate, setDueDate] = useState("");
@@ -80,6 +92,10 @@ export function DraftReview({
   const [isPublishDialogOpen, setIsPublishDialogOpen] = useState(false);
   const [isCloseDialogOpen, setIsCloseDialogOpen] = useState(false);
   const [isClosing, setIsClosing] = useState(false);
+  const [isReopening, setIsReopening] = useState(false);
+  const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
   const [publishError, setPublishError] = useState<string | null>(null);
   const [hasCopied, setHasCopied] = useState(false);
   const [isSummaryExpanded, setIsSummaryExpanded] = useState(false);
@@ -138,10 +154,19 @@ export function DraftReview({
     );
   }
 
+  const isClosedToStudents = draft.publication?.status === "closed";
+  const sections = groupQuestionsIntoSections(draft.questions);
   const selectedQuestion =
     draft.questions[
       Math.min(selectedQuestionIndex, draft.questions.length - 1)
     ];
+  const selectedSectionIndex = Math.max(
+    0,
+    sections.findIndex((section) =>
+      section.questions.some((question) => question._id === selectedQuestion?._id),
+    ),
+  );
+  const selectedSection = sections[selectedSectionIndex];
   /** Only assignees who actually have a board can receive the homework on one. */
   const assignedBoards = students.flatMap((student) =>
     selectedStudentIds.includes(student._id) && student.miroBoardUrl
@@ -178,6 +203,44 @@ export function DraftReview({
     const publication = draft?.publication;
     if (!publication) return;
     await setAssignees({ assignmentId: publication.assignmentId, studentIds });
+  }
+
+  async function reopenStudentAccess() {
+    const publication = draft?.publication;
+    if (!publication) return;
+    setIsReopening(true);
+    try {
+      await reopenAssignment({ assignmentId: publication.assignmentId });
+    } finally {
+      setIsReopening(false);
+    }
+  }
+
+  /**
+   * Deleting is bounded per call, so it is repeated until the backend reports
+   * itself finished. Leaving the page afterwards is the point: what it was
+   * showing no longer exists.
+   */
+  async function deleteHomework() {
+    setIsDeleting(true);
+    setDeleteError(null);
+    try {
+      for (let attempt = 0; attempt < MAXIMUM_DELETE_PASSES; attempt += 1) {
+        const result = await removeHomework({ homeworkDraftId });
+        if (result.isComplete) {
+          setIsDeleteDialogOpen(false);
+          onDiscarded();
+          return;
+        }
+      }
+      setDeleteError("This homework has more history than one delete could clear. Try again.");
+    } catch (caught) {
+      setDeleteError(
+        caught instanceof Error ? caught.message : "Could not delete this homework.",
+      );
+    } finally {
+      setIsDeleting(false);
+    }
   }
 
   async function closeStudentAccess() {
@@ -217,7 +280,14 @@ export function DraftReview({
       <DraftPageHeader
         action={
           draft.publication ? (
-            <div className="flex items-center gap-1.5">
+            <div className="flex items-center gap-2.5">
+              {/* Closing used to leave the page looking exactly as it did before,
+                  so the only way to tell it had worked was the library. */}
+              {isClosedToStudents ? (
+                <span className="rounded-full bg-muted px-2.5 py-1 text-[11.5px] font-semibold uppercase tracking-[0.08em] text-secondary-foreground">
+                  Closed to students
+                </span>
+              ) : null}
               <Button
                 variant="ghost"
                 nativeButton={false}
@@ -229,11 +299,18 @@ export function DraftReview({
                   />
                 }
               >
-                <ExternalLink size={14} aria-hidden /> Student link
+                <ExternalLink size={14} aria-hidden />{" "}
+                {isClosedToStudents ? "Preview link" : "Student link"}
               </Button>
-              <Button variant="destructive" onClick={() => setIsCloseDialogOpen(true)}>
-                Close access
-              </Button>
+              {isClosedToStudents ? (
+                <Button disabled={isReopening} onClick={() => void reopenStudentAccess()}>
+                  {isReopening ? "Reopening…" : "Reopen access"}
+                </Button>
+              ) : (
+                <Button variant="destructive" onClick={() => setIsCloseDialogOpen(true)}>
+                  Close access
+                </Button>
+              )}
             </div>
           ) : (
             <Button size="lg" onClick={() => setIsPublishDialogOpen(true)}>
@@ -345,6 +422,33 @@ export function DraftReview({
             </div>
           </section>
 
+          <section className="grid gap-3">
+            <SectionHeading
+              title="Student experience"
+              description="How the set behaves while a student works through it."
+            />
+            <div className="panel px-5 py-4 xl:px-6">
+              <div className="flex items-start justify-between gap-5">
+                <div className="min-w-0">
+                  <FieldTitle>Let students check each section</FieldTitle>
+                  <p className="mt-1 text-pretty text-[12.5px] leading-5 text-muted-foreground">
+                    A “Check section” button marks what they have answered so far as right
+                    or wrong, without showing the answers, so they can fix mistakes before
+                    moving on. Turn it off for a set you want answered once, like a test.
+                  </p>
+                </div>
+                <Switch
+                  checked={draft.selfCheckEnabled}
+                  onCheckedChange={(isEnabled) =>
+                    void setSelfCheck({ homeworkDraftId, selfCheckEnabled: isEnabled })
+                  }
+                  aria-label="Let students check each section"
+                  className="mt-0.5 shrink-0"
+                />
+              </div>
+            </div>
+          </section>
+
           {generationActivity}
 
           {draft.publication ? (
@@ -371,51 +475,81 @@ export function DraftReview({
             </p>
           )}
 
+          <div>
+            <Button
+              variant="destructive"
+              size="sm"
+              onClick={() => {
+                setDeleteError(null);
+                setIsDeleteDialogOpen(true);
+              }}
+            >
+              <Trash2 size={14} aria-hidden /> Delete this homework
+            </Button>
+          </div>
+
           <section className="grid gap-3">
             <SectionHeading
               title="Activity outline"
+              description="Grouped into the sections your student answers one screen at a time."
               action={
                 <span className="text-[13px] text-muted-foreground numeric">
+                  {sections.length} {sections.length === 1 ? "section" : "sections"} ·{" "}
                   {draft.questions.length} total
                 </span>
               }
             />
             <div className="panel overflow-hidden">
-              {draft.questions.map((question, index) => (
-                <button
-                  key={question._id}
-                  type="button"
-                  aria-current={
-                    selectedQuestionIndex === index ? "step" : undefined
-                  }
-                  onClick={() => setSelectedQuestionIndex(index)}
-                  className={cn(
-                    "flex min-h-14 w-full items-start gap-3 border-t border-border/70 px-4 py-3 text-left outline-none transition-colors duration-150 first:border-t-0 focus-visible:relative focus-visible:z-10 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring xl:px-5",
-                    selectedQuestionIndex === index
-                      ? "bg-primary-soft"
-                      : "hover:bg-muted/55",
-                  )}
-                >
-                  <span
-                    className={cn(
-                      "mt-0.5 w-5 text-[12px] font-medium numeric",
-                      selectedQuestionIndex === index
-                        ? "text-primary"
-                        : "text-muted-foreground",
-                    )}
-                  >
-                    {String(index + 1).padStart(2, "0")}
-                  </span>
-                  <span className="min-w-0">
-                    <span className="line-clamp-2 text-pretty text-[13px] font-medium leading-5">
-                      {question.prompt}
+              {sections.map((section) => (
+                <div key={section.key}>
+                  <div className="flex items-baseline justify-between gap-3 border-t border-border/70 bg-muted/45 px-4 py-2 first:border-t-0 xl:px-5">
+                    <p className="min-w-0 truncate text-[12px] font-semibold uppercase tracking-[0.07em] text-secondary-foreground">
+                      {section.title}
+                    </p>
+                    <span className="shrink-0 text-[11.5px] text-muted-foreground numeric">
+                      {section.questions.length}
                     </span>
-                    <span className="mt-1 block text-[12px] capitalize text-muted-foreground">
-                      {question.type.replaceAll("_", " ")} · {question.points}{" "}
-                      pts
-                    </span>
-                  </span>
-                </button>
+                  </div>
+                  {section.questions.map((question, positionInSection) => {
+                    const index = section.firstActivityNumber - 1 + positionInSection;
+                    return (
+                      <button
+                        key={question._id}
+                        type="button"
+                        aria-current={
+                          selectedQuestionIndex === index ? "step" : undefined
+                        }
+                        onClick={() => setSelectedQuestionIndex(index)}
+                        className={cn(
+                          "flex min-h-14 w-full items-start gap-3 border-t border-border/70 px-4 py-3 text-left outline-none transition-colors duration-150 focus-visible:relative focus-visible:z-10 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring xl:px-5",
+                          selectedQuestionIndex === index
+                            ? "bg-primary-soft"
+                            : "hover:bg-muted/55",
+                        )}
+                      >
+                        <span
+                          className={cn(
+                            "mt-0.5 w-5 text-[12px] font-medium numeric",
+                            selectedQuestionIndex === index
+                              ? "text-primary"
+                              : "text-muted-foreground",
+                          )}
+                        >
+                          {String(index + 1).padStart(2, "0")}
+                        </span>
+                        <span className="min-w-0">
+                          <span className="line-clamp-2 text-pretty text-[13px] font-medium leading-5">
+                            {question.prompt}
+                          </span>
+                          <span className="mt-1 block text-[12px] capitalize text-muted-foreground">
+                            {question.type.replaceAll("_", " ")} · {question.points}{" "}
+                            pts
+                          </span>
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
               ))}
             </div>
           </section>
@@ -453,13 +587,16 @@ export function DraftReview({
             className="mb-3"
           />
 
-          {selectedQuestion ? (
-            <QuestionPreview
-              key={selectedQuestion._id}
+          {selectedQuestion && selectedSection ? (
+            <SectionPreview
+              key={selectedSection.key}
               homeworkDraftId={homeworkDraftId}
-              question={selectedQuestion}
-              index={selectedQuestionIndex}
-              questionCount={draft.questions.length}
+              section={selectedSection}
+              sectionIndex={selectedSectionIndex}
+              sectionCount={sections.length}
+              referenceRules={draft.referenceRules}
+              isSelfCheckEnabled={draft.selfCheckEnabled}
+              selectedQuestion={selectedQuestion}
               mode={previewMode}
               homeworkTitle={draft.title}
               homeworkSummary={draft.summary}
@@ -468,14 +605,11 @@ export function DraftReview({
                 selectedQuestionIndex,
               )}
               onApplyClaudeRevision={applyClaudeRevision}
-              onPrevious={() =>
-                setSelectedQuestionIndex((current) => Math.max(0, current - 1))
-              }
-              onNext={() =>
-                setSelectedQuestionIndex((current) =>
-                  Math.min(draft.questions.length - 1, current + 1),
-                )
-              }
+              onSelectQuestionIndex={setSelectedQuestionIndex}
+              onGoToSection={(nextSectionIndex) => {
+                const nextSection = sections[nextSectionIndex];
+                if (nextSection) setSelectedQuestionIndex(nextSection.firstActivityNumber - 1);
+              }}
             />
           ) : (
             <div className="panel px-6 py-8 text-sm text-muted-foreground">
@@ -549,6 +683,41 @@ export function DraftReview({
       </Dialog>
 
       <AlertDialog
+        open={isDeleteDialogOpen}
+        onOpenChange={(isOpen) => {
+          if (!isDeleting) setIsDeleteDialogOpen(isOpen);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete this homework?</AlertDialogTitle>
+            <AlertDialogDescription>
+              &ldquo;{draft.title}&rdquo; and all {draft.questions.length} of its activities are
+              removed for good.
+              {draft.publication
+                ? " The student link stops working, and every attempt at it — answers, scores and ratings — is deleted with it."
+                : ""}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          {deleteError ? (
+            <p role="alert" className="text-[12.5px] leading-5 text-destructive">
+              {deleteError}
+            </p>
+          ) : null}
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isDeleting}>Keep it</AlertDialogCancel>
+            <AlertDialogAction
+              variant="danger"
+              disabled={isDeleting}
+              onClick={() => void deleteHomework()}
+            >
+              {isDeleting ? "Deleting…" : "Delete homework"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog
         open={isCloseDialogOpen}
         onOpenChange={(isOpen) => {
           if (!isClosing) setIsCloseDialogOpen(isOpen);
@@ -589,23 +758,39 @@ function DraftPageHeader({ action }: { action?: ReactNode }) {
   );
 }
 
-function QuestionPreview({
+/**
+ * The section the student actually meets, drawn whole: every activity in it, in
+ * order, in the same frame they use. The teacher still edits one activity at a
+ * time — the selected one carries the Claude island — but they read it in the
+ * run it belongs to, because a ten-sentence section walked one screen at a time
+ * hides the very thing a teacher checks: whether the ten are any good together.
+ */
+function SectionPreview({
   homeworkDraftId,
-  question,
-  index,
-  questionCount,
+  section,
+  sectionIndex,
+  sectionCount,
+  referenceRules,
+  isSelfCheckEnabled,
+  selectedQuestion,
   mode,
   homeworkTitle,
   homeworkSummary,
   neighboringPrompts,
   onApplyClaudeRevision,
-  onPrevious,
-  onNext,
+  onSelectQuestionIndex,
+  onGoToSection,
 }: {
   homeworkDraftId: Id<"homeworkDrafts">;
-  question: DraftQuestion;
-  index: number;
-  questionCount: number;
+  section: QuestionSection<DraftQuestion>;
+  sectionIndex: number;
+  sectionCount: number;
+  /** The cheat sheet, shown where the student gets it: above the work. */
+  referenceRules: ReferenceRule[];
+  /** Whether the student's own "Check section" button appears on this screen. */
+  isSelfCheckEnabled: boolean;
+  /** The activity the Claude island edits, always one inside this section. */
+  selectedQuestion: DraftQuestion;
   mode: PreviewMode;
   homeworkTitle: string;
   homeworkSummary: string;
@@ -614,8 +799,123 @@ function QuestionPreview({
     questionId: Id<"homeworkQuestions">,
     question: HomeworkQuestion,
   ) => Promise<void>;
-  onPrevious: () => void;
-  onNext: () => void;
+  onSelectQuestionIndex: (index: number) => void;
+  onGoToSection: (sectionIndex: number) => void;
+}) {
+  const sectionPoints = section.questions.reduce(
+    (total, question) => total + question.points,
+    0,
+  );
+
+  return (
+    <HomeworkWizard
+      currentStep={sectionIndex + 1}
+      totalSteps={sectionCount}
+      stepNoun="Section"
+      eyebrow={`${section.questions.length} ${section.questions.length === 1 ? "activity" : "activities"}`}
+      meta={
+        <span className="numeric">
+          {sectionPoints} {sectionPoints === 1 ? "point" : "points"}
+        </span>
+      }
+      className="min-h-[40rem]"
+      /* Room for the island, which floats above the footer over the last
+         activity in a long section. */
+      bodyClassName="pb-24"
+      /* Everything the student's screen carries, in the order they meet it. */
+      aside={referenceRules.length > 0 ? <ReferenceRules rules={referenceRules} /> : null}
+      /* The same heading treatment the student gets, from the same component. */
+      prompt={
+        <PromptContent
+          prompt={section.title}
+          size="lg"
+          headingLevel={3}
+          className="mt-2.5"
+        />
+      }
+      instructions={section.task}
+      floatingPanel={
+        <div className="mx-auto max-w-[42rem]">
+          <ClaudeQuestionIsland
+            key={selectedQuestion._id}
+            homeworkDraftId={homeworkDraftId}
+            homeworkTitle={homeworkTitle}
+            homeworkSummary={homeworkSummary}
+            question={toHomeworkQuestion(selectedQuestion)}
+            questionId={selectedQuestion._id}
+            neighboringPrompts={neighboringPrompts}
+            onApply={onApplyClaudeRevision}
+          />
+        </div>
+      }
+      back={
+        <Button
+          variant="ghost"
+          size="xl"
+          disabled={sectionIndex === 0}
+          onClick={() => onGoToSection(sectionIndex - 1)}
+        >
+          <ArrowLeft size={16} aria-hidden /> Previous section
+        </Button>
+      }
+      next={
+        <>
+          {/* Shown, never wired: this is the student's control, and a teacher
+              needs to see that it is there — and that turning it off removes it. */}
+          {isSelfCheckEnabled && section.questions.some((question) => question.type !== "short_answer" && question.type !== "rewrite") ? (
+            <Button variant="outline" size="xl" disabled title="Your student checks the section here">
+              <ListChecks size={16} aria-hidden /> Check section
+            </Button>
+          ) : null}
+          <Button
+            size="xl"
+            disabled={sectionIndex >= sectionCount - 1}
+            onClick={() => onGoToSection(sectionIndex + 1)}
+          >
+            Next section <ArrowRight size={16} aria-hidden />
+          </Button>
+        </>
+      }
+    >
+      <ol className="grid gap-6">
+        {section.questions.map((question, positionInSection) => (
+          <PreviewActivity
+            key={question._id}
+            question={question}
+            number={positionInSection + 1}
+            sectionTask={section.task}
+            mode={mode}
+            isSelected={question._id === selectedQuestion._id}
+            onSelect={() =>
+              onSelectQuestionIndex(section.firstActivityNumber - 1 + positionInSection)
+            }
+          />
+        ))}
+      </ol>
+    </HomeworkWizard>
+  );
+}
+
+/**
+ * One activity inside the previewed section. Selecting it is what points the
+ * Claude island at it, so the whole row is a target rather than a small handle:
+ * a teacher who spots the weak sentence should be able to click the sentence.
+ */
+function PreviewActivity({
+  question,
+  number,
+  sectionTask,
+  mode,
+  isSelected,
+  onSelect,
+}: {
+  question: DraftQuestion;
+  number: number;
+  /** Repeated instructions are noise once every activity sits under the task. */
+  sectionTask: string;
+  mode: PreviewMode;
+  isSelected: boolean;
+  onSelect: () => void;
 }) {
   /**
    * The same conversion the student's assignment goes through, not a copy of it.
@@ -634,91 +934,77 @@ function QuestionPreview({
   }, [publicContent]);
 
   return (
-    <HomeworkWizard
-      currentStep={index + 1}
-      totalSteps={questionCount}
-      eyebrow={question.type.replaceAll("_", " ")}
-      meta={
-        <span className="numeric">
-          {question.points} {question.points === 1 ? "point" : "points"}
-        </span>
-      }
-      className="min-h-[40rem]"
-      prompt={
-        <PromptContent
-          prompt={question.prompt}
-          size="md"
-          headingLevel={3}
-          className="mt-2.5"
-        />
-      }
-      instructions={question.instructions}
-      floatingPanel={
-        <div className="mx-auto max-w-[42rem]">
-          <ClaudeQuestionIsland
-            homeworkDraftId={homeworkDraftId}
-            homeworkTitle={homeworkTitle}
-            homeworkSummary={homeworkSummary}
-            question={toHomeworkQuestion(question)}
-            questionId={question._id}
-            neighboringPrompts={neighboringPrompts}
-            onApply={onApplyClaudeRevision}
-          />
-        </div>
-      }
-      supplement={
-        mode === "answer" ? (
-          <div className="mt-8 rounded-xl border border-primary/20 bg-primary-soft/50 px-4 py-4">
-            <p className="text-[12px] font-semibold uppercase tracking-[0.08em] text-primary">
-              Teacher answer key
-            </p>
-            {question.correctAnswer ? (
-              <p className="mt-2 whitespace-pre-line text-pretty text-[13px] font-medium leading-6 text-secondary-foreground">
-                {question.correctAnswer}
-              </p>
-            ) : (
-              <p className="mt-2 text-[13px] text-secondary-foreground">
-                Review this written response manually.
-              </p>
-            )}
-            <p className="mt-2 text-pretty text-[13px] leading-6 text-muted-foreground">
-              {question.explanation}
-            </p>
-            {question.skillTags.length > 0 ? (
-              <p className="mt-3 text-pretty text-[13px] leading-5 text-muted-foreground">
-                <span className="font-medium text-foreground">Skills:</span>{" "}
-                {question.skillTags.map(humanizeIdentifier).join(", ")}
-              </p>
-            ) : null}
-          </div>
-        ) : null
-      }
-      back={
-        <Button
-          variant="ghost"
-          size="xl"
-          disabled={index === 0}
-          onClick={onPrevious}
-        >
-          <ArrowLeft size={16} aria-hidden /> Previous
-        </Button>
-      }
-      next={
-        <Button
-          size="xl"
-          disabled={index === questionCount - 1}
-          onClick={onNext}
-        >
-          Next <ArrowRight size={16} aria-hidden />
-        </Button>
-      }
+    <li
+      aria-current={isSelected ? "step" : undefined}
+      className={cn(
+        "-mx-3 rounded-2xl px-3 py-3 transition-colors duration-150",
+        isSelected ? "bg-primary-soft/45 ring-1 ring-primary/25" : "hover:bg-muted/40",
+      )}
     >
-      <QuestionWidget
-        content={publicContent}
-        response={response}
-        onChange={setResponse}
-      />
-    </HomeworkWizard>
+      <div className="grid grid-cols-[1.5rem_minmax(0,1fr)] gap-x-3">
+        <span
+          className={cn(
+            "mt-0.5 font-mono text-[12.5px] numeric",
+            isSelected ? "text-primary" : "text-muted-foreground",
+          )}
+        >
+          {number}.
+        </span>
+        <div className="min-w-0">
+          {/* The prompt is the handle: clicking it aims the Claude island here. */}
+          <button
+            type="button"
+            onClick={onSelect}
+            className="block w-full rounded-lg text-left outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            <PromptContent prompt={question.prompt} size="sm" headingLevel={4} />
+          </button>
+          {/* The section's task line is already above every activity here. */}
+          {question.instructions && question.instructions !== sectionTask ? (
+            <p className="mt-1 text-pretty text-[12.5px] leading-5 text-muted-foreground">
+              {question.instructions}
+            </p>
+          ) : null}
+          <div className="mt-3">
+            <QuestionWidget
+              content={publicContent}
+              response={response}
+              onChange={setResponse}
+            />
+          </div>
+          {mode === "answer" ? <AnswerKey question={question} /> : null}
+        </div>
+      </div>
+    </li>
+  );
+}
+
+/** What this activity expects, for the teacher only. */
+function AnswerKey({ question }: { question: DraftQuestion }) {
+  return (
+    <div className="mt-3 rounded-xl border border-primary/20 bg-primary-soft/50 px-3.5 py-3">
+      <p className="text-[11.5px] font-semibold uppercase tracking-[0.08em] text-primary">
+        Answer key
+      </p>
+      {question.correctAnswer ? (
+        <p className="mt-1.5 whitespace-pre-line text-pretty text-[12.5px] font-medium leading-5 text-secondary-foreground">
+          {question.correctAnswer}
+        </p>
+      ) : (
+        <p className="mt-1.5 text-[12.5px] text-secondary-foreground">
+          Review this written response manually.
+        </p>
+      )}
+      <p className="mt-1.5 text-pretty text-[12.5px] leading-5 text-muted-foreground">
+        {question.explanation}
+      </p>
+      {question.skillTags.length > 0 ? (
+        <p className="mt-2 text-pretty text-[12px] leading-5 text-muted-foreground">
+          <span className="font-medium text-foreground">Skills:</span>{" "}
+          {question.skillTags.map(humanizeIdentifier).join(", ")}
+        </p>
+      ) : null}
+    </div>
   );
 }
 

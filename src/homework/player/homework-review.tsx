@@ -4,7 +4,7 @@ import { useState, type ReactNode } from "react";
 
 import type { api } from "@convex/_generated/api";
 import { cn } from "@/lib/utils";
-import { groupQuestionsIntoSets, type WidgetMarking } from "./answer-types";
+import { groupQuestionsIntoSections, toWidgetMarking } from "./answer-types";
 import { PromptContent } from "./prompt-content";
 import { QuestionWidget } from "./question-widgets";
 import { ReferenceRules } from "./reference-rules";
@@ -25,10 +25,14 @@ const VERDICT_LABELS: Record<Verdict, string> = {
  * The verdict is carried by the task's own border and nothing else. Inside it,
  * only text is coloured — a red box around every wrong row turned six mistakes
  * into six competing containers, which is harder to read than the plain list.
+ *
+ * Three outcomes, three colours. "Partly right" used to be drawn in the same red
+ * as "not yet", which told a student who got four gaps out of five the same
+ * thing as one who got none of them.
  */
 const VERDICT_STYLES: Record<Verdict, { border: string; text: string }> = {
   correct: { border: "border-primary/45", text: "text-primary" },
-  partial: { border: "border-destructive/45", text: "text-destructive" },
+  partial: { border: "border-amber-500/50", text: "text-amber-600" },
   incorrect: { border: "border-destructive/70", text: "text-destructive" },
   pending: { border: "border-border", text: "text-ink-secondary" },
   skipped: { border: "border-border", text: "text-ink-muted" },
@@ -40,7 +44,7 @@ const VERDICT_STYLES: Record<Verdict, { border: string; text: string }> = {
  * it did — which is the part a score alone can never teach.
  */
 export function HomeworkReview({ review }: { review: ReviewData }) {
-  const sets = groupQuestionsIntoSets(review.items);
+  const sections = groupQuestionsIntoSections(review.items);
 
   return (
     <div className="grid gap-8">
@@ -48,17 +52,24 @@ export function HomeworkReview({ review }: { review: ReviewData }) {
         <ReferenceRules rules={review.referenceRules} />
       ) : null}
 
-      {sets.map((set, setIndex) => (
-        <section key={`${set.title}-${setIndex}`} className="grid gap-3">
+      {sections.map((section, sectionIndex) => (
+        <section key={section.key} className="grid gap-3">
           <SetHeading
-            index={setIndex}
-            title={set.title || "Your answers"}
-            task={set.task}
-            score={describeSetScore(set.questions)}
+            index={sectionIndex}
+            title={section.title || "Your answers"}
+            task={section.task}
+            score={describeSetScore(section.questions)}
           />
           <div className="grid gap-2.5">
-            {set.questions.map((item) => (
-              <ReviewRow key={item.questionId} item={item} step={review.items.indexOf(item) + 1} />
+            {section.questions.map((item, positionInSection) => (
+              <ReviewRow
+                key={item.questionId}
+                item={item}
+                /* Counted from where the section starts. Searching the whole list
+                   for each row was quadratic, on a list that is now a hundred
+                   rows long. */
+                step={section.firstActivityNumber + positionInSection}
+              />
             ))}
           </div>
         </section>
@@ -221,7 +232,7 @@ function TimelineStrip({
       {isOpen ? (
         <ol className="mt-1.5 flex flex-wrap items-center gap-x-1.5 gap-y-1.5 font-mono text-[12px]">
           {beats.map((beat, index) => (
-            <li key={beat} className="flex items-center gap-1.5">
+            <li key={index} className="flex items-center gap-1.5">
               {index > 0 ? (
                 <ArrowRight size={12} className="text-amber-600" aria-hidden />
               ) : null}
@@ -276,28 +287,6 @@ function ReviewExplanation({ text }: { text: string }) {
       ) : null}
     </div>
   );
-}
-
-/** Turns the server's per-part marking into what each widget needs to show it. */
-function toWidgetMarking(item: ReviewItem): WidgetMarking {
-  const parts = item.parts.map((part) => ({
-    isCorrect: part.isCorrect,
-    expected: part.expected,
-  }));
-  if (item.content.kind === "multiple_choice") {
-    const correctChoiceIndices = item.parts.flatMap((part, index) =>
-      part.expected === "Select" ? [index] : [],
-    );
-    return { parts, correctChoiceIndices };
-  }
-  if (parts.length === 0) {
-    // One typed answer: error_fix and the written tasks.
-    return {
-      parts: [{ isCorrect: item.correctness === "correct", expected: item.correctAnswer ?? "" }],
-      expected: item.correctAnswer,
-    };
-  }
-  return { parts };
 }
 
 export function resolveVerdict(item: ReviewItem): Verdict {

@@ -1,9 +1,13 @@
-import type {
-  AttachHomeworkToBoardInput,
-  GenerateHomeworkInput,
-  RewriteHomeworkQuestionInput,
-  SummarizeSubmissionInput,
-  TeachingStyle,
+import {
+  countPlannedActivities,
+  countPlannedItems,
+  describeActivityPlan,
+  estimatePlanMinutes,
+  type AttachHomeworkToBoardInput,
+  type GenerateHomeworkInput,
+  type RewriteHomeworkQuestionInput,
+  type SummarizeSubmissionInput,
+  type TeachingStyle,
 } from "@/shared/claude";
 
 const UNTRUSTED_SOURCE_RULE =
@@ -11,13 +15,13 @@ const UNTRUSTED_SOURCE_RULE =
 
 const QUESTION_FORMAT_RULES = [
   "Every question renders as an interactive widget, so its `content` must match the widget exactly:",
-  "- multiple_choice: `choices` plus `correctChoices`, an array of every zero-based correct option index. Include more than one index whenever several choices are valid.",
+  "- multiple_choice: `choices` plus `correctChoices`, an array of every zero-based correct option index. Include more than one index whenever several choices are valid. The player tells the student how many answers to choose, counted from that array, so never say it yourself in `prompt` or `instructions` — and make sure the array really lists every correct option, because the count comes from it.",
   "- fill_blank: `text` containing one `{{1}}`, `{{2}}`, … marker per blank in order, and one `blanks` entry per marker listing every acceptable answer (include contractions and common spellings). Set a blank's optional `hint` to the dictionary form the student must reshape — `go` for a gap whose answer is `goes`, `be` for `was`. The player shows the hint in brackets next to the gap, so never write the bracketed word into `text` yourself.",
   "- matching: 3-8 `pairs` of `left` (prompt) and `right` (its match). The player shuffles the right column.",
   "- select_cloze: a continuous passage in `text` with one `{{1}}`, `{{2}}`, … marker per gap and 3-15 `gaps`, each holding 2-4 `options` and `correctOption`. The student picks from a dropdown at every gap. Options must be genuinely competing forms, not one right answer beside obvious nonsense. Add a one-clause `explanation` to the gaps where the reason is not obvious — under 120 characters, shown only when that gap was answered wrongly.",
   "- error_fix: one sentence split into `before`, the wrong phrase in `flagged`, and `after`. Concatenating the three in that order must reproduce the whole sentence, punctuation and spacing included, so keep the words either side of the mistake in `before` and `after` rather than dropping them. `flagged` must be exactly the wrong phrase, never the whole sentence. The student retypes only the corrected phrase into `acceptedAnswers`. Use the student's own real mistakes verbatim where the evidence provides them.",
   "- proofread: a connected passage of 40-90 words in `text` with one `{{1}}`, `{{2}}`, … marker per mistake and 3-6 `errors` in the same order. Each entry holds the wrong form in `flagged` — the words the student sees struck through, which must read naturally where the marker sits — and every correct rewrite in `acceptedAnswers`. Everything else in the passage must already be correct.",
-  "- open_response: use for `short_answer` and `rewrite`. Add `expectedAnswer` as a model answer for the teacher; it is never auto-graded or shown during the task.",
+  "- open_response: use for `short_answer` and `rewrite`. Add `expectedAnswer` as a model answer for the teacher; it is never auto-graded or shown during the task. One activity is one question or one sentence to rework — the student gets a writing box under each one, so never bundle several sentences into a single open_response and never ask for a numbered list in one box.",
   "Never put the blank markers, answer letters, or correct answers in `prompt` or `instructions` — students read those fields.",
   "An open_response `prompt` must contain every sentence, pair, or item the student has to work on: one that says 'rewrite each pair' without listing the pairs is unusable, because `expectedAnswer` is teacher-only.",
   "Every other widget already puts its own material on screen, so `prompt` must not repeat it. An error_fix `prompt` that quotes the sentence, or a fill_blank `prompt` that restates the text, shows the student the same thing twice — write one short line of direction instead, like `Correct the highlighted phrase.`",
@@ -35,39 +39,39 @@ const REUSABILITY_RULES = [
 ].join("\n");
 
 /**
- * The worksheet shape the teacher asked us to mirror: named sets, a cheat sheet,
- * a timeline behind each tense choice, and an explanation written to be read
- * after the answer is marked.
+ * The worksheet shape the teacher asked us to mirror: one named section per
+ * activity type, a cheat sheet, a timeline behind each tense choice, and an
+ * explanation written to be read after the answer is marked.
  */
 const WORKSHEET_STRUCTURE_RULES = [
   "Structure the set the way a good paper worksheet is structured:",
-  "- Group the activities into 3-4 named sets using each question's `set` field. Every activity in one set repeats the identical `set.title` (a short imperative like `Type the verb` or `Review the diff`) and the identical `set.task` (one or two sentences telling the student exactly what to do, including what counts as acceptable — contractions, alternative spellings). Sets appear in `order`, never interleaved.",
-  "- Give each set one job. A typical shape: recognise the form, produce the form, fix a real mistake, then one connected passage.",
+  "- One section per requested activity type, in the order the types are listed, using each question's `set` field. Every activity of that type repeats the identical `set.title` (a short imperative naming the work — `Choose the right form`, `Type the verb`) and the identical `set.task` (one or two sentences telling the student exactly what to do across the whole section, including what counts as acceptable: contractions, alternative spellings). Activities of one type are consecutive in `order` and never interleaved with another type.",
+  "- The student answers a whole section on one screen, item after item, and may check that section before moving on. Write each section so its items build on one another rather than jumping between unrelated topics.",
   "- Add `referenceRules`: 3-5 cheat-sheet entries the student can open while working. `term` is the form (`Past Perfect`), `explanation` is what it does plus one short example. Make the last entry a decision test the student can apply on their own.",
   "- For a multiple_choice question about sequence or tense, add `timeline`: 2-4 beats in the order they really happened, oldest first, phrased in the student's own words (`you don't lock the bike`, then `you come back and it's gone`).",
   "- Write every `explanation` as at most two short sentences, read beside an answer that has already been marked: one saying what the tempting wrong form would have meant, one saying why the right form is right. No preamble, no restating the task, and never `Correct answer: X` — the answer is already shown next to it. Aim for under 240 characters; a paragraph is not read.",
 ].join("\n");
 
 /**
- * Three one-sentence corrections in a row all read as "Correct the highlighted
- * phrase." in the teacher's outline and in the student's wizard. One passage
- * carrying the same three mistakes is better practice and one step instead of
- * three, so error correction is grouped by default.
+ * A section is ten items of one widget now, so the old rule — vary the widget
+ * every step — is replaced by variety inside the section. Ten sentences that are
+ * the same sentence with a different verb teach nothing.
  */
 const VARIETY_RULES = [
-  "No two activities may repeat each other:",
-  "- At most one error_fix in the whole set. When several corrections are worth practising, write one proofread passage that carries them all instead of a run of one-sentence fixes.",
-  "- Never give two activities the same `prompt`. The teacher picks activities from a list of their prompts, and a repeated line makes them indistinguishable. Name what each one is about — `Fix the four verb forms in this travel diary`, not `Correct the highlighted phrase`.",
-  "- Vary the widget from one activity to the next wherever the teaching allows it.",
+  "Within a section, no two items may repeat each other:",
+  "- Every item gets its own situation, subject and vocabulary. Ten items about one incident is one item written ten times.",
+  "- Never give two activities the same `prompt`. In a section of one-sentence activities the prompt is what tells them apart on screen and in the teacher's outline, so name the specific item — `The delayed train`, `Losing the luggage` — and let `set.task` carry the shared instruction. Keep `instructions` to a short line, never a copy of the task.",
+  "- Spread difficulty across the section: start with the clearest case, and put the ones that contrast the target form against its nearest neighbour later.",
+  "- Do not write any activity whose `type` the teacher did not ask for, and do not invent extra sections.",
 ].join("\n");
 
 const DIFFICULTY_RULES = [
   "Make the set genuinely demanding rather than a warm-up:",
-  "- Prefer passage-level work over isolated sentences. A select_cloze or multi-gap fill_blank built from one connected text tests far more than six unrelated one-liners.",
+  "- Where a type carries several items at once — select_cloze, proofread, matching — build them from one connected text or one coherent field of meaning, never from unrelated one-liners.",
   "- Every distractor must be a form a real learner would plausibly choose, usually the exact error in the student's context. Never pad options with obvious nonsense.",
   "- Contrast the target structure against its nearest neighbour in the same question, not across separate questions.",
   "- Use fill_blank `hint` for form-production gaps so the student must derive the inflection rather than recognise it.",
-  "- At least one activity should require the student to produce connected language, not just select or fill.",
+  "- Where the requested types allow it, make at least one section require the student to produce connected language, not just select or fill.",
 ].join("\n");
 
 /**
@@ -104,7 +108,12 @@ function describeTeachingStyle(style: TeachingStyle | undefined) {
 
 function describeSource(input: GenerateHomeworkInput) {
   if (!input.miroBoardUrl) return "Use the teacher's notes and student context below as the source.";
-  return `Read the Miro board at ${input.miroBoardUrl} with read-only Miro MCP tools, then combine it with the notes below. Do not modify the Miro board, local files, settings, or external services.`;
+  return [
+    `Read the Miro board at ${input.miroBoardUrl} with read-only Miro MCP tools and treat the lesson it holds as the brief for this homework.`,
+    "The lesson to work from is the most recently created frame — teachers build a board left to right, one frame per lesson — so creation order decides, and position only breaks a tie. Take its content as the lesson overview: the topic, the examples used, and the vocabulary introduced.",
+    "Anything in the teacher's notes below is an addition to that lesson, not a replacement for it. Where the two disagree, the notes win.",
+    "Do not modify the Miro board, local files, settings, or external services.",
+  ].join(" ");
 }
 
 function optionalSection(heading: string, body: string | undefined) {
@@ -113,21 +122,29 @@ function optionalSection(heading: string, body: string | undefined) {
   return `${heading}\n${trimmed}`;
 }
 
-/** Keeps a 60-minute brief from turning into thirty activities. */
-function describeActivityBudget(durationMinutes: number) {
-  const activityCount = Math.max(3, Math.min(14, Math.round(durationMinutes / 4)));
-  return `${activityCount} activities`;
-}
+/**
+ * The teacher's own answer to "what is in this homework", spelled out per type.
+ * A count is in practice items, which is one activity for the one-sentence
+ * widgets and one passage or grid for the rest, so the arithmetic is done here
+ * rather than left to the model.
+ */
+function describeActivityPlanRules(input: GenerateHomeworkInput) {
+  const entries = describeActivityPlan(input.activityPlan);
+  const lines = entries.map((entry) => {
+    const itemWord = entry.itemCount === 1 ? entry.itemNoun : `${entry.itemNoun}s`;
+    if (entry.itemsPerActivity === 1) {
+      return `- ${entry.type}: exactly ${entry.activityCount} activities, one ${entry.itemNoun} each. That is ${entry.itemCount} ${itemWord} of practice.`;
+    }
+    return `- ${entry.type}: exactly ${entry.activityCount} ${entry.activityCount === 1 ? "activity" : "activities"} carrying ${entry.itemCount} ${itemWord} in total, at most ${entry.itemsPerActivity} per activity.`;
+  });
 
-function describeActivityTypes(input: GenerateHomeworkInput) {
-  if (input.activityTypes.length === 0) {
-    return "Mix widget types so the set is varied, and target the student's actual errors rather than generic drills.";
-  }
   return [
-    `The teacher asked for these question \`type\` values to appear: ${input.activityTypes.join(", ")}.`,
-    "Include at least one of each, then keep mixing in other types so the set still feels varied.",
+    "The teacher chose exactly which activity types this homework contains and how much of each. Write these and nothing else:",
+    ...lines,
+    `That is ${countPlannedActivities(input.activityPlan)} activities carrying ${countPlannedItems(input.activityPlan)} practice items, roughly ${estimatePlanMinutes(input.activityPlan)} minutes of work. Set \`estimatedMinutes\` to your own honest estimate of that.`,
+    "Never substitute one type for another, never add a type that is not on the list, and never write fewer items than asked because the topic feels thin — find more of the topic instead.",
     "Target the student's actual errors rather than generic drills.",
-  ].join(" ");
+  ].join("\n");
 }
 
 export function buildHomeworkPrompt(input: GenerateHomeworkInput) {
@@ -145,9 +162,8 @@ export function buildHomeworkPrompt(input: GenerateHomeworkInput) {
     optionalSection("Recent performance evidence:", input.recentPerformance),
     optionalSection("Teacher notes for this lesson:", input.lessonNotes),
     targetSkills,
-    `Difficulty: ${input.difficulty}. Target completion time: ${input.durationMinutes} minutes.`,
-    `Write about one activity per four minutes of that target — roughly ${describeActivityBudget(input.durationMinutes)}. Fewer, denser activities beat a long list, and every extra one costs the teacher waiting time.`,
-    describeActivityTypes(input),
+    `Difficulty: ${input.difficulty}.`,
+    describeActivityPlanRules(input),
     describeTeachingStyle(input.teachingStyle),
     VARIETY_RULES,
     DIFFICULTY_RULES,

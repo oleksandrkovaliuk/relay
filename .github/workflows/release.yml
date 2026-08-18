@@ -31,6 +31,7 @@ jobs:
       # Vite reads these during `pnpm build`; setting them only on the later
       # electron-builder step would package a renderer with empty URLs.
       VITE_CONVEX_URL: ${{ vars.VITE_CONVEX_URL }}
+      VITE_CLERK_PUBLISHABLE_KEY: ${{ vars.VITE_CLERK_PUBLISHABLE_KEY }}
       VITE_PLAYER_ORIGIN: ${{ vars.VITE_PLAYER_ORIGIN }}
       HAS_CSC_LINK: ${{ secrets.CSC_LINK != '' }}
       HAS_APPLE_ID: ${{ secrets.APPLE_ID != '' }}
@@ -48,6 +49,7 @@ jobs:
         shell: bash
         run: |
           test -n "$VITE_CONVEX_URL"
+          test -n "$VITE_CLERK_PUBLISHABLE_KEY"
           test -n "$VITE_PLAYER_ORIGIN"
       - run: pnpm build
 

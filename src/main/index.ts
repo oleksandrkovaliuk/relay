@@ -3,6 +3,8 @@ import { join } from "node:path";
 
 import { app, BrowserWindow, nativeImage, shell } from "electron";
 
+import { registerRelayAuthIpc } from "./auth/register-relay-auth-ipc";
+import { RelayAuthService } from "./auth/relay-auth-service";
 import { ClaudeConnectionStore } from "./claude/claude-connections";
 import { ClaudeService } from "./claude/claude-service";
 import { registerClaudeConnectionIpc } from "./claude/register-claude-connection-ipc";
@@ -48,8 +50,10 @@ function createWindow() {
   mainWindow.webContents.on("preload-error", (_event, preloadPath, error) => {
     console.error(`Failed to load preload script at ${preloadPath}:`, error);
   });
-  mainWindow.webContents.on("console-message", (_event, level, message) => {
-    if (level >= 2) console.error(`Renderer: ${message}`);
+  mainWindow.webContents.on("console-message", (details) => {
+    if (details.level === "warning" || details.level === "error") {
+      console.error(`Renderer: ${details.message}`);
+    }
   });
   mainWindow.webContents.on("did-fail-load", (_event, errorCode, errorDescription) => {
     console.error(`Renderer failed to load (${errorCode}): ${errorDescription}`);
@@ -73,6 +77,15 @@ function createWindow() {
   }
 
   void mainWindow.loadFile(join(__dirname, "../renderer/index.html"));
+}
+
+function focusRelayWindow() {
+  const [mainWindow] = BrowserWindow.getAllWindows();
+  if (!mainWindow) return;
+  if (mainWindow.isMinimized()) mainWindow.restore();
+  mainWindow.show();
+  mainWindow.focus();
+  if (process.platform === "darwin") app.focus({ steal: true });
 }
 
 const DEVELOPMENT_INSPECT_PORT = "9222";
@@ -99,6 +112,10 @@ app.whenReady().then(() => {
     stateFilePath: join(app.getPath("userData"), "claude-connections.json"),
     configRootPath: join(app.getPath("userData"), "claude-configs"),
   });
+  const relayAuthService = new RelayAuthService({
+    onSignInCompleted: focusRelayWindow,
+  });
+  registerRelayAuthIpc(relayAuthService);
   const claudeService = new ClaudeService({
     workingDirectory: join(app.getPath("userData"), "ai-workspace"),
     openExternal: (url) => shell.openExternal(url),

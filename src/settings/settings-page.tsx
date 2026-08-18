@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 import { ClaudeAccountsSection } from "@/claude/claude-accounts-section";
 import { ClaudeModelSection } from "@/claude/claude-model-section";
 import { CLAUDE_INSTALL_GUIDE_URL } from "@/claude/claude-setup-dialog";
+import { RelayAccountSection } from "@/auth/relay-account-section";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
 import { cn } from "@/lib/utils";
@@ -19,6 +20,13 @@ export function SettingsPage({
 }) {
   return (
     <div className="mx-auto grid w-full max-w-[46rem] gap-8 px-6 pb-16 pt-6 lg:px-8">
+      <SettingsSection
+        title="Relay account"
+        description="Your students, homework, submissions, and teaching preferences belong to this account."
+      >
+        <RelayAccountSection />
+      </SettingsSection>
+
       <SettingsSection
         title="Appearance"
         description="Applies to this Mac only."
@@ -52,7 +60,6 @@ export function SettingsPage({
         <ClaudeRuntimeStatus availability={availability} />
         <ClaudeAccountsSection />
       </SettingsSection>
-
     </div>
   );
 }

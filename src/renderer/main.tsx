@@ -1,11 +1,20 @@
+import { ClerkProvider, useAuth } from "@clerk/react";
 import { RouterProvider } from "@tanstack/react-router";
-import { ConvexProvider, ConvexReactClient } from "convex/react";
+import {
+  AuthLoading,
+  Authenticated,
+  ConvexReactClient,
+  Unauthenticated,
+} from "convex/react";
+import { ConvexProviderWithClerk } from "convex/react-clerk";
 import { ConvexQueryCacheProvider } from "convex-helpers/react/cache/provider";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 
 import "@/styles.css";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { RelaySignIn } from "@/auth/relay-sign-in";
+import { RelayUserBootstrap } from "@/auth/relay-user-bootstrap";
 import { applyTheme, readThemePreference } from "@/settings/theme";
 import { router } from "./router";
 
@@ -13,32 +22,61 @@ applyTheme(readThemePreference());
 
 const rootElement = document.getElementById("app");
 const convexUrl = import.meta.env.VITE_CONVEX_URL?.trim();
+const clerkPublishableKey = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY?.trim();
 
 if (!rootElement) throw new Error("Missing #app root element.");
 if (!convexUrl) throw new Error("Missing VITE_CONVEX_URL. Run `pnpm dev` to configure Convex.");
+if (!clerkPublishableKey) {
+  throw new Error("Missing VITE_CLERK_PUBLISHABLE_KEY.");
+}
 
 const convex = new ConvexReactClient(convexUrl);
-/**
- * Long enough to cover moving between pages, short enough not to hold sockets.
- * Every cached query stays subscribed and recomputes on the server whenever
- * anything it reads changes, so five minutes of that for a page nobody is
- * looking at was paid for in CPU on both ends.
- */
-const CACHE_EXPIRATION_MILLISECONDS = 90 * 1_000;
+const relayOAuthTransport = {
+  getRedirectUrl: async () => getRelayAuthDesktopApi().getRelayAuthRedirectUrl(),
+  open: async (url: URL) => ({
+    callbackUrl: await getRelayAuthDesktopApi().openRelayAuthAuthorization(url.toString()),
+  }),
+};
 
 createRoot(rootElement).render(
   <StrictMode>
-    <ConvexProvider client={convex}>
-      {/*
-        Leaving a page used to drop its subscriptions, so coming back re-fetched
-        everything and flashed skeletons. The cache keeps them alive briefly after
-        unmount: navigating away and back is then instant, and still live.
-      */}
-      <ConvexQueryCacheProvider expiration={CACHE_EXPIRATION_MILLISECONDS}>
-        <TooltipProvider delay={350}>
-          <RouterProvider router={router} />
-        </TooltipProvider>
-      </ConvexQueryCacheProvider>
-    </ConvexProvider>
+    <ClerkProvider
+      publishableKey={clerkPublishableKey}
+      __internal_oauthTransport={relayOAuthTransport}
+    >
+      <AuthenticatedRelayApp />
+    </ClerkProvider>
   </StrictMode>,
 );
+
+function AuthenticatedRelayApp() {
+  return (
+    <ConvexProviderWithClerk client={convex} useAuth={useAuth}>
+      {/* Private subscriptions must close before Convex clears the JWT. */}
+      <ConvexQueryCacheProvider maxIdleEntries={0}>
+        <TooltipProvider delay={350}>
+          <AuthLoading>
+            <div className="grid min-h-screen place-items-center bg-workspace-surface text-[13px] text-muted-foreground">
+              Connecting securely…
+            </div>
+          </AuthLoading>
+          <Unauthenticated>
+            <RelaySignIn />
+          </Unauthenticated>
+          <Authenticated>
+            <RelayUserBootstrap>
+              <RouterProvider router={router} />
+            </RelayUserBootstrap>
+          </Authenticated>
+        </TooltipProvider>
+      </ConvexQueryCacheProvider>
+    </ConvexProviderWithClerk>
+  );
+}
+
+function getRelayAuthDesktopApi() {
+  if (!window.relayAuth) {
+    throw new Error("Relay's desktop authentication bridge is unavailable.");
+  }
+  return window.relayAuth;
+}

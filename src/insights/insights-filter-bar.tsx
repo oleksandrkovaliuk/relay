@@ -4,7 +4,13 @@ import { X } from "lucide-react";
 import { api } from "@convex/_generated/api";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
-import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { cn, initials } from "@/lib/utils";
 import {
   RANGE_PRESET_LABELS,
@@ -16,6 +22,7 @@ import {
 } from "./insight-filter";
 
 const RANGE_ORDER: InsightRangePreset[] = ["all", "today", "7d", "30d", "month", "custom"];
+const ALL_STUDENTS_VALUE = "all";
 /** Past this many, names stop fitting on one line and a select reads better. */
 const MAXIMUM_STUDENT_CHIPS = 5;
 
@@ -56,9 +63,11 @@ export function InsightsFilterBar({
 
   const visibleStudents = students ?? [];
   const isChipLayout = visibleStudents.length <= MAXIMUM_STUDENT_CHIPS;
+  const selectedStudentName =
+    visibleStudents.find((student) => student._id === search.student)?.name ?? "All students";
 
   return (
-    <div className="panel grid gap-2.5 px-4 py-3.5 xl:px-5">
+    <div className="flex flex-wrap items-center gap-x-5 gap-y-2 border-b border-border/70 pb-3">
       <FilterRow label="Student">
         {isChipLayout ? (
           <div className="flex flex-wrap items-center gap-1.5">
@@ -81,22 +90,32 @@ export function InsightsFilterBar({
             ))}
           </div>
         ) : (
-          <NativeSelect
-            size="sm"
-            className="w-52"
-            value={search.student ?? ""}
-            aria-label="Filter insights by student"
-            onChange={(event) => changeStudent(event.target.value || null)}
+          <Select
+            value={search.student ?? ALL_STUDENTS_VALUE}
+            onValueChange={(value) =>
+              changeStudent(value === ALL_STUDENTS_VALUE ? null : value)
+            }
           >
-            <NativeSelectOption value="">All students</NativeSelectOption>
-            {visibleStudents.map((student) => (
-              <NativeSelectOption key={student._id} value={student._id}>
-                {student.name}
-              </NativeSelectOption>
-            ))}
-          </NativeSelect>
+            <SelectTrigger
+              size="sm"
+              className="w-44 rounded-md bg-muted/70 text-[12.5px]"
+              aria-label="Filter insights by student"
+            >
+              <SelectValue>{selectedStudentName}</SelectValue>
+            </SelectTrigger>
+            <SelectContent align="start">
+              <SelectItem value={ALL_STUDENTS_VALUE}>All students</SelectItem>
+              {visibleStudents.map((student) => (
+                <SelectItem key={student._id} value={student._id}>
+                  {student.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         )}
       </FilterRow>
+
+      <span className="hidden h-4 w-px bg-border/80 lg:block" aria-hidden />
 
       <FilterRow label="Period">
         <div className="flex flex-wrap items-center gap-1.5">
@@ -111,7 +130,7 @@ export function InsightsFilterBar({
           ))}
 
           {range === "custom" ? (
-            <span className="ml-1 flex items-center gap-1.5 rounded-full border border-border bg-card px-1.5 py-1">
+            <span className="ml-1 flex items-center gap-1 rounded-md bg-muted/70 px-1 py-0.5">
               <DayInput
                 label="Start date"
                 value={search.from ?? ""}
@@ -148,11 +167,11 @@ export function InsightsFilterBar({
 
 function FilterRow({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
-      <span className="w-14 shrink-0 text-[11px] font-medium uppercase tracking-[0.08em] text-muted-foreground">
+    <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1.5">
+      <span className="shrink-0 text-[10px] font-medium uppercase tracking-[0.1em] text-muted-foreground/75">
         {label}
       </span>
-      <div className="min-w-0 flex-1">{children}</div>
+      <div className="min-w-0">{children}</div>
     </div>
   );
 }
@@ -173,10 +192,10 @@ function FilterChip({
       aria-pressed={isSelected}
       onClick={onSelect}
       className={cn(
-        "inline-flex h-7 items-center gap-1.5 rounded-full border px-2.5 text-[12.5px] font-medium outline-none transition-[background-color,border-color,color] duration-150 focus-visible:ring-2 focus-visible:ring-ring",
+        "inline-flex h-7 items-center gap-1.5 rounded-md border border-transparent px-2 text-[12.5px] font-medium outline-none transition-[background-color,color] duration-150 focus-visible:ring-2 focus-visible:ring-ring",
         isSelected
-          ? "border-primary/45 bg-primary-soft text-primary"
-          : "border-border bg-card text-secondary-foreground hover:border-input hover:bg-muted/60 hover:text-foreground",
+          ? "bg-primary-soft text-primary"
+          : "text-muted-foreground hover:bg-muted/65 hover:text-foreground",
       )}
     >
       {children}
@@ -205,7 +224,7 @@ function DayInput({
       min={min}
       max={max}
       onChange={(event) => onChange(event.target.value)}
-      className="h-6 rounded-full bg-transparent px-1.5 text-[12.5px] text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      className="h-6 rounded bg-transparent px-1.5 text-[12px] text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring"
     />
   );
 }

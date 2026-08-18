@@ -12,7 +12,12 @@ import {
 } from "./answer-types";
 
 const CHOICE_LETTERS = ["A", "B", "C", "D", "E", "F"];
-const OPEN_RESPONSE_MINIMUM_HEIGHT = 168;
+/**
+ * A section now stacks ten written answers on one screen, so the box starts at
+ * two comfortable lines and grows with what is typed rather than reserving a
+ * third of the screen before a word is written.
+ */
+const OPEN_RESPONSE_MINIMUM_HEIGHT = 96;
 const OPEN_RESPONSE_MAXIMUM_HEIGHT = 320;
 const BLANK_MINIMUM_WIDTH_CH = 6;
 /** A blank holds a word or two; past this the answer scrolls inside the gap
@@ -52,6 +57,7 @@ export function QuestionWidget({
     return (
       <MultipleChoiceWidget
         choices={content.choices}
+        requiredChoiceCount={content.correctChoiceCount}
         choiceIndices={choiceIndices}
         onToggle={(choiceIndex) =>
           onChange({
@@ -249,9 +255,11 @@ function ProofreadWidget({
       {marking ? null : (
         // The count, not a restatement of the task: the instructions above
         // already say what to do, and a passage makes it easy to miss one.
-        <p className="text-[12.5px] text-ink-secondary numeric">
-          {errors.length} {errors.length === 1 ? "mistake" : "mistakes"} to fix.
-        </p>
+        <PartProgress
+          filled={values.filter((value) => value.trim().length > 0).length}
+          total={errors.length}
+          noun="mistake"
+        />
       )}
     </div>
   );
@@ -280,67 +288,196 @@ export function FlaggedPhrase({
   );
 }
 
+/**
+ * How many answers this question wants, and how many are chosen. A student
+ * looking at four plausible options cannot tell whether one or three of them
+ * count, and "select all that apply" leaves them guessing whether they are done.
+ */
+function describeChoiceRequirement(requiredChoiceCount: number) {
+  if (requiredChoiceCount <= 1) return "Choose 1 answer";
+  return `Choose ${requiredChoiceCount} answers`;
+}
+
+function ChoiceRequirement({
+  requiredChoiceCount,
+  selectedCount,
+}: {
+  requiredChoiceCount: number;
+  selectedCount: number;
+}) {
+  const isSatisfied = selectedCount === requiredChoiceCount;
+  const hasTooMany = selectedCount > requiredChoiceCount;
+
+  return (
+    <p
+      aria-live="polite"
+      className={cn(
+        "font-mono text-[11.5px] uppercase tracking-[0.1em]",
+        hasTooMany ? "text-destructive" : isSatisfied ? "text-primary" : "text-ink-muted",
+      )}
+    >
+      {describeChoiceRequirement(requiredChoiceCount)}
+      {selectedCount > 0 ? ` · ${selectedCount} chosen` : ""}
+    </p>
+  );
+}
+
+/**
+ * Marked choices have to answer two questions at a glance: which option did I
+ * pick, and was it right. An earlier version drew the same green tick on the
+ * right answer whether or not the student chose it, so a wrong attempt read as a
+ * correct one — every marked row now says whose answer it is.
+ */
 function MultipleChoiceWidget({
   choices,
+  requiredChoiceCount,
   choiceIndices,
   onToggle,
   isReadOnly,
   marking,
 }: {
   choices: string[];
+  /** How many options are right. Said out loud, never inferred by the student. */
+  requiredChoiceCount: number;
   choiceIndices: number[];
   onToggle: (choiceIndex: number) => void;
   isReadOnly?: boolean;
   marking?: WidgetMarking;
 }) {
-  const expectedChoiceIndices =
-    marking?.correctChoiceIndices ??
-    (marking?.correctChoiceIndex === undefined ? [] : [marking.correctChoiceIndex]);
+  const isMarked = Boolean(marking);
+  /**
+   * Green with a tick means "this is right". While the student is choosing, that
+   * is what their own selection means to them. Read back to somebody else with
+   * no verdict attached — a teacher reading an attempt still in progress — the
+   * same styling claims the answer was correct, so an unmarked replay states
+   * only what was picked.
+   */
+  const isNeutralReplay = isReadOnly && !isMarked;
+  /** A mid-homework check marks the attempt without pointing at the answer. */
+  const revealsAnswers = marking ? marking.revealsAnswers !== false : false;
+  /** Whether any row on this question can carry a verdict tag. */
+  const hasVerdictColumn = isMarked || isNeutralReplay;
+  const expectedChoiceIndices = revealsAnswers
+    ? (marking?.correctChoiceIndices ??
+      (marking?.correctChoiceIndex === undefined ? [] : [marking.correctChoiceIndex]))
+    : [];
 
   return (
-    <div role="group" aria-label="Answer choices" className="grid gap-2.5">
+    <div
+      role="group"
+      aria-label={describeChoiceRequirement(requiredChoiceCount)}
+      className="grid gap-2.5"
+    >
+      {isMarked && revealsAnswers ? (
+        /* Over-selecting scores nothing, so a single green row among the reds
+           must not read as partial credit: the counts say what happened. */
+        <p className="font-mono text-[11.5px] uppercase tracking-[0.1em] text-ink-secondary">
+          Expected {expectedChoiceIndices.length} ·{" "}
+          <span
+            className={cn(
+              choiceIndices.length === expectedChoiceIndices.length
+                ? "text-ink-secondary"
+                : "text-destructive",
+            )}
+          >
+            chose {choiceIndices.length}
+          </span>
+        </p>
+      ) : (
+        <ChoiceRequirement
+          requiredChoiceCount={requiredChoiceCount}
+          selectedCount={choiceIndices.length}
+        />
+      )}
       {choices.map((choice, index) => {
         const isSelected = choiceIndices.includes(index);
-        const isExpected = marking ? expectedChoiceIndices.includes(index) : false;
-        const isWrongPick = Boolean(marking) && isSelected && !isExpected;
+        const isExpected = expectedChoiceIndices.includes(index);
+        const isWrongPick =
+          isMarked &&
+          isSelected &&
+          (revealsAnswers ? !isExpected : marking?.verdict !== "correct");
+        const isRightPick = isMarked && isSelected && !isWrongPick;
+        const isMissedAnswer = isExpected && !isSelected;
         return (
           <button
-            key={choice}
+            /* Not the text: a generated set can repeat a distractor, and two
+               identical keys make React reuse the wrong row's state. */
+            key={index}
             type="button"
             role="checkbox"
             aria-checked={isSelected}
             disabled={isReadOnly}
             onClick={() => onToggle(index)}
             className={cn(
-              "flex min-h-[3.25rem] w-full items-start gap-3.5 rounded-xl border px-3.5 py-3 text-left text-[15px] leading-6 transition-[background-color,border-color,color,transform] duration-[120ms] ease-[var(--ease-out)] active:scale-[.99] motion-reduce:active:scale-100 lg:text-base",
-              isSelected && !marking
+              "grid min-h-[3.25rem] w-full items-start gap-x-3.5 rounded-xl border px-3.5 py-3 text-left text-[15px] leading-6 transition-[background-color,border-color,color,transform] duration-[120ms] ease-[var(--ease-out)] active:scale-[.99] motion-reduce:active:scale-100 lg:text-base",
+              /* The verdict tag gets a column of its own, reserved on every row
+                 whether or not that row has one. In flow it stole width from the
+                 option beside it, so the rows that carried a tag wrapped their
+                 text differently from the rows that did not, and the whole list
+                 looked misaligned. */
+              /* Wide enough for the longest tag on one line: wrapping "correct
+                 answer" made that row taller than the rest of the list. */
+              hasVerdictColumn
+                ? "grid-cols-[1.25rem_minmax(0,1fr)_6.75rem]"
+                : "grid-cols-[1.25rem_minmax(0,1fr)]",
+              isSelected && !isMarked && !isNeutralReplay
                 ? "border-primary bg-primary-soft font-medium text-primary"
                 : "border-border bg-card text-ink hover:border-input hover:bg-muted/45",
-              isWrongPick && "font-medium text-destructive",
-              isExpected && "font-medium text-primary",
+              isSelected && isNeutralReplay && "border-input bg-muted/60 font-medium text-ink",
+              isWrongPick && "border-destructive/60 bg-critical-soft/50 font-medium text-destructive",
+              isRightPick && "border-primary/60 bg-primary-soft font-medium text-primary",
+              // Not the student's answer: outlined, never filled, so it can't be
+              // mistaken for what they picked.
+              isMissedAnswer && "border-dashed border-primary/60 font-medium text-primary",
               isReadOnly && "cursor-default",
             )}
           >
             <span
               className={cn(
                 "mt-0.5 grid size-5 shrink-0 place-items-center rounded-md border text-[11px] font-semibold leading-none",
-                isWrongPick && "border-destructive/50 text-destructive",
-                !isWrongPick && (isExpected || (isSelected && !marking))
-                  ? "border-primary bg-primary text-primary-foreground"
-                  : isWrongPick
-                    ? ""
-                    : "border-input text-ink-secondary",
+                isWrongPick && "border-destructive bg-destructive text-background",
+                isRightPick && "border-primary bg-primary text-primary-foreground",
+                isMissedAnswer && "border-dashed border-primary text-primary",
+                isSelected &&
+                  !isMarked &&
+                  (isNeutralReplay
+                    ? "border-ink-muted bg-ink-muted/25 text-ink"
+                    : "border-primary bg-primary text-primary-foreground"),
+                !isWrongPick && !isRightPick && !isMissedAnswer && !isSelected
+                  ? "border-input text-ink-secondary"
+                  : "",
               )}
             >
               {isWrongPick ? (
                 <X size={12} strokeWidth={3} aria-hidden />
-              ) : isExpected || (isSelected && !marking) ? (
+              ) : isRightPick || isMissedAnswer || (isSelected && !isMarked && !isNeutralReplay) ? (
                 <Check size={12} strokeWidth={3} aria-hidden />
               ) : (
                 (CHOICE_LETTERS[index] ?? String(index + 1))
               )}
             </span>
-            <span className="min-w-0 flex-1">{choice}</span>
+            <span className="min-w-0">{choice}</span>
+            {hasVerdictColumn ? (
+              /* Always rendered, even empty, so the column holds its width and
+                 the option text starts and ends in the same place on every row. */
+              <span
+                className={cn(
+                  "mt-1 whitespace-nowrap text-right font-mono text-[10.5px] uppercase leading-4 tracking-[0.1em]",
+                  isWrongPick ? "text-destructive" : "text-primary",
+                  isNeutralReplay && "text-ink-secondary",
+                )}
+              >
+                {isNeutralReplay
+                  ? isSelected
+                    ? "chosen"
+                    : ""
+                  : isSelected
+                    ? "your answer"
+                    : isMissedAnswer
+                      ? "correct answer"
+                      : ""}
+              </span>
+            ) : null}
           </button>
         );
       })}
@@ -406,6 +543,7 @@ function FillBlankWidget({
   }
 
   return (
+    <div className="grid gap-3">
     <p className="text-base leading-[2.4] text-ink lg:text-[17px]">
       {segments.map((segment, index) =>
         segment.blankIndex === null ? (
@@ -425,6 +563,36 @@ function FillBlankWidget({
         ),
       )}
     </p>
+      {marking ? null : (
+        <PartProgress
+          filled={values.filter((value) => value.trim().length > 0).length}
+          total={values.length}
+          noun="gap"
+        />
+      )}
+    </div>
+  );
+}
+
+/**
+ * How much of a multi-part activity is done. A passage with eight gaps gives no
+ * clue how many are still empty once the text is longer than the screen, and a
+ * student cannot check what they cannot count.
+ */
+function PartProgress({
+  filled,
+  total,
+  noun,
+}: {
+  filled: number;
+  total: number;
+  noun: string;
+}) {
+  if (total <= 1) return null;
+  return (
+    <p className="text-[12.5px] text-ink-secondary numeric" aria-live="polite">
+      {filled} of {total} {total === 1 ? noun : `${noun}s`} done
+    </p>
   );
 }
 
@@ -438,10 +606,18 @@ function ExpectedInline({ mark }: { mark?: { isCorrect: boolean; expected: strin
   );
 }
 
-/** error_fix and open_response have one answer, so one verdict. */
+/**
+ * error_fix and open_response have one answer, so one verdict. A section check
+ * marks the activity as a whole and sends no parts, so the activity's own
+ * verdict stands in — without it a correct answer would be drawn red.
+ */
 function singleMark(marking?: WidgetMarking) {
   if (!marking) return undefined;
-  return { isCorrect: marking.parts[0]?.isCorrect ?? false, expected: marking.expected ?? "" };
+  const part = marking.parts[0];
+  return {
+    isCorrect: part ? part.isCorrect : marking.verdict === "correct",
+    expected: part?.expected || marking.expected || "",
+  };
 }
 
 /**
@@ -526,6 +702,7 @@ function SelectClozeWidget({
   }
 
   return (
+    <div className="grid gap-3">
     <p className="text-base leading-[2.5] text-ink lg:text-[17px]">
       {segments.map((segment, index) => {
         if (segment.blankIndex === null)
@@ -568,7 +745,7 @@ function SelectClozeWidget({
                 {GAP_PLACEHOLDER}
               </option>
               {gap.options.map((option, optionIndex) => (
-                <option key={option} value={optionIndex}>
+                <option key={optionIndex} value={optionIndex}>
                   {option}
                 </option>
               ))}
@@ -588,6 +765,14 @@ function SelectClozeWidget({
         );
       })}
     </p>
+      {marking ? null : (
+        <PartProgress
+          filled={selectedOptions.filter((option) => option >= 0).length}
+          total={gaps.length}
+          noun="gap"
+        />
+      )}
+    </div>
   );
 }
 
@@ -627,7 +812,7 @@ function OpenResponseWidget({
         ref={textareaRef}
         value={text}
         disabled={isReadOnly}
-        rows={5}
+        rows={3}
         onChange={(event) => onChange(event.target.value)}
         placeholder="Write your answer…"
         className="w-full resize-none rounded-xl border border-border bg-card p-3.5 text-[15px] leading-6 text-ink outline-none transition-[border-color,box-shadow] duration-150 focus-visible:border-primary focus-visible:ring-3 focus-visible:ring-ring/25 lg:text-base"

@@ -2,6 +2,7 @@ import {
   Add01Icon,
   AssignmentsIcon,
   Cancel01Icon,
+  Delete02Icon,
   Edit01Icon,
   ExternalLinkIcon,
   UserGroup03Icon,
@@ -33,6 +34,16 @@ import {
   EmptyMedia,
   EmptyTitle,
 } from "@/components/ui/empty";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Field, FieldDescription, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -45,6 +56,9 @@ type StudentDraft = {
   miroBoardUrl: string;
   contextNotes: string;
 };
+
+/** Deleting a learner is paged; this is the ceiling on how many pages to walk. */
+const MAXIMUM_DELETE_PASSES = 40;
 
 type StudentSummary = NonNullable<ReturnType<typeof useQuery<typeof api.students.list>>>[number];
 
@@ -64,11 +78,40 @@ export function StudentsView({
 }) {
   const convex = useConvex();
   const students = useQuery(api.students.list);
+  const removeStudent = useMutation(api.students.remove);
   const [editingId, setEditingId] = useState<Id<"students"> | null>(null);
   const [isAdding, setIsAdding] = useState(false);
   const [addStudentTriggerId, setAddStudentTriggerId] = useState<string | null>(null);
+  const [studentToDelete, setStudentToDelete] = useState<StudentSummary | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+
+  /**
+   * Deleting is bounded per call so one transaction never has to carry a whole
+   * term of history; it is repeated until the backend says the learner is gone.
+   */
+  async function deleteSelectedStudent() {
+    if (!studentToDelete) return;
+    setIsDeleting(true);
+    setDeleteError(null);
+    try {
+      for (let attempt = 0; attempt < MAXIMUM_DELETE_PASSES; attempt += 1) {
+        const result = await removeStudent({ studentId: studentToDelete._id });
+        if (result.isComplete) {
+          setStudentToDelete(null);
+          return;
+        }
+      }
+      setDeleteError("This student has more history than one delete could clear. Try again.");
+    } catch (caught) {
+      setDeleteError(caught instanceof Error ? caught.message : "Could not delete this student.");
+    } finally {
+      setIsDeleting(false);
+    }
+  }
 
   return (
+    <>
     <Dialog
       open={isAdding}
       triggerId={addStudentTriggerId}
@@ -146,6 +189,10 @@ export function StudentsView({
                       onOpenHistory(student._id);
                     }}
                     onCreateHomework={() => onCreateHomework(student._id)}
+                    onDelete={() => {
+                      setDeleteError(null);
+                      setStudentToDelete(student);
+                    }}
                   />
                 ),
               )}
@@ -156,6 +203,47 @@ export function StudentsView({
 
       <NewStudentDialogContent onSaved={() => setIsAdding(false)} />
     </Dialog>
+
+    {/* Outside the dialog above on purpose: a dialog nested inside another one
+        is treated as a child of it and renders without its own backdrop, so a
+        delete confirmation opened from this page floated over nothing. */}
+      <AlertDialog
+        open={studentToDelete !== null}
+        onOpenChange={(isOpen) => {
+          if (!isOpen && !isDeleting) {
+            setStudentToDelete(null);
+            setDeleteError(null);
+          }
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete {studentToDelete?.name}?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Their profile, saved context and every attempt they made —{" "}
+              {studentToDelete?.submittedCount ?? 0} submitted, answers and ratings included — are
+              removed for good. The homework you wrote for them stays in your library, no longer
+              assigned to anyone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          {deleteError ? (
+            <p role="alert" className="text-[12.5px] leading-5 text-destructive">
+              {deleteError}
+            </p>
+          ) : null}
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isDeleting}>Keep student</AlertDialogCancel>
+            <AlertDialogAction
+              variant="danger"
+              disabled={isDeleting}
+              onClick={() => void deleteSelectedStudent()}
+            >
+              {isDeleting ? "Deleting…" : "Delete student"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </>
   );
 }
 
@@ -203,6 +291,7 @@ function StudentCard({
   onPrewarmHistory,
   onOpenHistory,
   onCreateHomework,
+  onDelete,
 }: {
   student: StudentSummary;
   now: number;
@@ -210,6 +299,7 @@ function StudentCard({
   onPrewarmHistory: () => void;
   onOpenHistory: () => void;
   onCreateHomework: () => void;
+  onDelete: () => void;
 }) {
   return (
     <article className="panel px-4 py-5 sm:px-5 xl:px-6 xl:py-6">
@@ -262,6 +352,15 @@ function StudentCard({
           <Button size="lg" onClick={onCreateHomework}>
             <HugeiconsIcon icon={AssignmentsIcon} size={15} strokeWidth={2} aria-hidden />
             Homework
+          </Button>
+          {/* Last, and quiet: it is the one action here that cannot be undone. */}
+          <Button
+            variant="destructiveGhost"
+            size="lg"
+            aria-label={`Delete ${student.name}`}
+            onClick={onDelete}
+          >
+            <HugeiconsIcon icon={Delete02Icon} size={15} strokeWidth={2} aria-hidden />
           </Button>
         </div>
       </header>

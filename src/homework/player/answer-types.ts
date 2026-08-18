@@ -1,5 +1,10 @@
 export type PublicQuestionContent =
-  | { kind: "multiple_choice"; choices: string[] }
+  | {
+      kind: "multiple_choice";
+      choices: string[];
+      /** How many options are right; never which. */
+      correctChoiceCount: number;
+    }
   | {
       kind: "fill_blank";
       text: string;
@@ -41,30 +46,54 @@ export type PlayerQuestion = {
   set?: QuestionSet;
 };
 
+export type QuestionSection<Question> = {
+  /** Stable across renders: the player keys its per-section state on this. */
+  key: string;
+  title: string;
+  task: string;
+  questions: Question[];
+  /** 1-based position of the section's first activity in the whole worksheet. */
+  firstActivityNumber: number;
+};
+
 /**
- * Sets in the order they appear, with the steps that belong to each. Consecutive
- * activities sharing a title are one set, so a repeated title later in the sheet
- * starts a new one rather than merging into the earlier section.
+ * The worksheet as the student now works through it: one screen per section,
+ * every activity of that section on it.
+ *
+ * A generated set names its sections, so consecutive activities sharing a
+ * `set.title` are one screen. Homework written before sections existed has no
+ * titles at all, and putting all of it on one screen would be a wall — there the
+ * activity type stands in, which reproduces the old one-activity-per-step shape
+ * for a mixed set.
  */
-export function groupQuestionsIntoSets<Question extends { set?: QuestionSet }>(
-  questions: Question[],
-) {
-  const sets: { title: string; task: string; questions: Question[]; firstStep: number }[] = [];
+export function groupQuestionsIntoSections<
+  Question extends { set?: QuestionSet; type: string },
+>(questions: Question[]): QuestionSection<Question>[] {
+  const sections: (QuestionSection<Question> & { groupKey: string })[] = [];
   questions.forEach((question, index) => {
-    const title = question.set?.title ?? "";
-    const current = sets.at(-1);
-    if (current && current.title === title) {
+    const groupKey = question.set?.title
+      ? `set:${question.set.title}`
+      : `type:${question.type}`;
+    const current = sections.at(-1);
+    if (current && current.groupKey === groupKey) {
       current.questions.push(question);
       return;
     }
-    sets.push({
-      title,
-      task: question.set?.task ?? "",
+    sections.push({
+      groupKey,
+      key: `${groupKey}#${index}`,
+      title: question.set?.title ?? humanizeQuestionType(question.type),
+      task: question.set?.task ?? question.set?.title ?? "",
       questions: [question],
-      firstStep: index + 1,
+      firstActivityNumber: index + 1,
     });
   });
-  return sets;
+  return sections.map(({ groupKey: _groupKey, ...section }) => section);
+}
+
+function humanizeQuestionType(type: string) {
+  const words = type.replaceAll("_", " ");
+  return words.charAt(0).toUpperCase() + words.slice(1);
 }
 
 /** Sentinel for a gap the student has not answered yet. */
@@ -92,12 +121,20 @@ export function emptyResponse(content: PublicQuestionContent): AnswerResponse {
   }
 }
 
-export function isAnswerComplete(response: AnswerResponse) {
+/**
+ * Whether this answer is finished. Multiple choice needs the activity's own
+ * content to say so: picking one of the two right answers is a started answer,
+ * not a done one, and the progress rail was calling it done.
+ */
+export function isAnswerComplete(response: AnswerResponse, content?: PublicQuestionContent) {
   switch (response.kind) {
     case "choice":
       return response.choiceIndex >= 0;
-    case "choices":
-      return response.choiceIndices.length > 0;
+    case "choices": {
+      const requiredCount =
+        content?.kind === "multiple_choice" ? content.correctChoiceCount : 1;
+      return response.choiceIndices.length >= requiredCount;
+    }
     case "blanks":
       return response.values.every((value) => value.trim().length > 0);
     case "matches":
@@ -174,4 +211,48 @@ export type WidgetMarking = {
   correctChoiceIndices?: number[];
   /** A single typed answer: error_fix and open_response. */
   expected?: string | null;
+  /**
+   * False while the student is still working: a section check tells them which
+   * of their own answers are wrong and nothing else, so no widget may show the
+   * expected answer or point at an option that was not picked.
+   */
+  revealsAnswers?: boolean;
+  /** The activity's own verdict, for widgets marked as a whole. */
+  verdict?: "correct" | "partial" | "incorrect";
 };
+
+/**
+ * Turns a graded answer into what each widget needs to draw it marked. Shared by
+ * the student's review and the teacher's, because a marked answer must look the
+ * same to both — the teacher was reading unmarked widgets before this, which
+ * left a wrong answer drawn in the same green as a right one.
+ */
+export function toWidgetMarking(answer: {
+  content: { kind: string };
+  parts: { isCorrect: boolean; expected: string }[];
+  correctness?: string;
+  correctAnswer: string | null;
+}): WidgetMarking {
+  const parts = answer.parts.map((part) => ({
+    isCorrect: part.isCorrect,
+    expected: part.expected,
+  }));
+  if (answer.content.kind === "multiple_choice") {
+    return {
+      parts,
+      correctChoiceIndices: answer.parts.flatMap((part, index) =>
+        part.expected === "Select" ? [index] : [],
+      ),
+    };
+  }
+  if (parts.length === 0) {
+    // One typed answer: error_fix and the written tasks.
+    return {
+      parts: [
+        { isCorrect: answer.correctness === "correct", expected: answer.correctAnswer ?? "" },
+      ],
+      expected: answer.correctAnswer,
+    };
+  }
+  return { parts };
+}

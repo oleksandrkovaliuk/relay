@@ -7,18 +7,28 @@ import schema from "./schema";
 
 const modules = import.meta.glob("./**/*.ts");
 
-function createBackend() {
-  return convexTest(schema, modules);
+async function createBackend() {
+  const backend = convexTest(schema, modules).withIdentity({
+    issuer: "https://relay-tests.clerk.accounts.dev",
+    subject: "teacher-primary",
+    tokenIdentifier: "https://relay-tests.clerk.accounts.dev|teacher-primary",
+  });
+  await backend.mutation(api.users.ensureCurrent);
+  return backend;
 }
 
 async function createSubmission(
-  backend: ReturnType<typeof createBackend>,
+  backend: Awaited<ReturnType<typeof createBackend>>,
   tokenPrefix: string,
   isSubmitted = true,
 ) {
   const shareToken = `${tokenPrefix}-share-token-000000000`;
   const resumeToken = `${tokenPrefix}-resume-token-00000000`;
-  const { studentId } = await backend.mutation(internal.seed.demoHomework, { shareToken });
+  const owner = await backend.query(api.users.current);
+  const { studentId } = await backend.mutation(internal.seed.demoHomework, {
+    shareToken,
+    ownerId: owner._id,
+  });
   const started = await backend.mutation(api.submissions.start, { shareToken, resumeToken });
   if (isSubmitted) {
     await backend.mutation(api.submissions.submit, {
@@ -31,7 +41,7 @@ async function createSubmission(
 
 describe("submission feedback", () => {
   test("requires the submission resume token for student reads and writes", async () => {
-    const backend = createBackend();
+    const backend = await createBackend();
     const submission = await createSubmission(backend, "feedback-auth");
 
     await expect(
@@ -56,7 +66,7 @@ describe("submission feedback", () => {
   });
 
   test("rejects feedback before the homework is submitted", async () => {
-    const backend = createBackend();
+    const backend = await createBackend();
     const submission = await createSubmission(backend, "feedback-early", false);
 
     await expect(
@@ -69,7 +79,7 @@ describe("submission feedback", () => {
   });
 
   test("validates the rating and limits the trimmed comment to 500 characters", async () => {
-    const backend = createBackend();
+    const backend = await createBackend();
     const submission = await createSubmission(backend, "feedback-validation");
 
     for (const rating of [0, 6, 2.5]) {
@@ -92,7 +102,7 @@ describe("submission feedback", () => {
   });
 
   test("upserts one normalized record and makes identical retries no-ops", async () => {
-    const backend = createBackend();
+    const backend = await createBackend();
     const submission = await createSubmission(backend, "feedback-upsert");
 
     const first = await backend.mutation(api.feedback.save, {
@@ -136,7 +146,7 @@ describe("submission feedback", () => {
   });
 
   test("surfaces safe feedback in teacher detail, history, feed, and aggregates", async () => {
-    const backend = createBackend();
+    const backend = await createBackend();
     const submission = await createSubmission(backend, "feedback-teacher");
     await backend.mutation(api.feedback.save, {
       submissionId: submission.submissionId,

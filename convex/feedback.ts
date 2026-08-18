@@ -92,6 +92,7 @@ export const save = mutation({
     const updatedAt = Date.now();
     const createdAt = existing?.createdAt ?? updatedAt;
     const replacement = {
+      ...(submission.ownerId ? { ownerId: submission.ownerId } : {}),
       submissionId: submission._id,
       assignmentId: submission.assignmentId,
       rating,

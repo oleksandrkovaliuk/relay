@@ -1,7 +1,8 @@
-import { v } from "convex/values";
+import { v, type Infer } from "convex/values";
 
-import type { Id } from "./_generated/dataModel";
+import type { Doc, Id } from "./_generated/dataModel";
 import { mutation, query, type MutationCtx } from "./_generated/server";
+import { requireCurrentUser, requireOwned } from "./auth";
 import {
   aiSummaryValidator,
   answerResponseValidator,
@@ -17,68 +18,18 @@ import {
   toPublicContent,
 } from "./content";
 import { questionSetValidator, referenceRuleValidator } from "./schema";
-import { loadSubmissionDetail } from "./submissionLib";
+import { calculateSubmissionTotals, loadSubmissionDetail } from "./submissionLib";
 import { submissionFeedbackValueValidator } from "./feedback";
+import { MAX_ASSIGNEES, MAX_QUESTIONS } from "./limits";
 
-const MAX_QUESTIONS = 40;
-const MAX_ASSIGNEES = 200;
+/**
+ * One section of a worksheet, which is what the player saves and checks at a
+ * time. Above the largest section generation can produce, so a hand-built or
+ * legacy set with one long run of activities is still checkable in one go.
+ */
+const MAX_SECTION_QUESTIONS = 60;
 const MIN_RESUME_TOKEN_LENGTH = 16;
 const MIN_STUDENT_NAME_LENGTH = 2;
-
-const teacherGradeCorrectnessValidator = v.union(
-  v.literal("correct"),
-  v.literal("partial"),
-  v.literal("incorrect"),
-);
-
-type TeacherGradeCorrectness = "correct" | "partial" | "incorrect";
-
-function requireValidTeacherGrade(
-  correctness: TeacherGradeCorrectness,
-  pointsAwarded: number,
-  maximumPoints: number,
-) {
-  const hasBoundedIntegerPoints =
-    Number.isInteger(pointsAwarded) && pointsAwarded >= 0 && pointsAwarded <= maximumPoints;
-  if (!hasBoundedIntegerPoints) {
-    throw new Error(`Points must be a whole number between 0 and ${maximumPoints}.`);
-  }
-  if (correctness === "correct" && pointsAwarded !== maximumPoints) {
-    throw new Error("A correct answer must receive full credit.");
-  }
-  if (correctness === "incorrect" && pointsAwarded !== 0) {
-    throw new Error("An incorrect answer must receive zero points.");
-  }
-  if (correctness === "partial" && (pointsAwarded === 0 || pointsAwarded === maximumPoints)) {
-    throw new Error("A partly right answer must receive partial credit.");
-  }
-}
-
-async function calculateReviewedSubmissionTotals(
-  ctx: MutationCtx,
-  submissionId: Id<"submissions">,
-) {
-  const answers = await ctx.db
-    .query("answers")
-    .withIndex("by_submissionId", (q) => q.eq("submissionId", submissionId))
-    .take(MAX_QUESTIONS);
-
-  let score = 0;
-  let maxScore = 0;
-  let pendingReviewCount = 0;
-  for (const answer of answers) {
-    if (!answer.correctness || answer.correctness === "pending_review") {
-      pendingReviewCount += 1;
-      continue;
-    }
-    const question = await ctx.db.get("assignmentQuestions", answer.questionId);
-    if (!question) continue;
-    score += answer.pointsAwarded ?? 0;
-    maxScore += question.points;
-  }
-
-  return { score, maxScore, pendingReviewCount };
-}
 
 export const start = mutation({
   args: {
@@ -133,6 +84,7 @@ export const start = mutation({
       .reduce((total, question) => total + question.points, 0);
 
     const submissionId = await ctx.db.insert("submissions", {
+      ...(assignment.ownerId ? { ownerId: assignment.ownerId } : {}),
       assignmentId: assignment._id,
       ...(student ? { studentId: student._id } : {}),
       studentName,
@@ -145,6 +97,59 @@ export const start = mutation({
   },
 });
 
+const savedAnswerValidator = v.object({
+  questionId: v.id("assignmentQuestions"),
+  response: answerResponseValidator,
+  stats: answerStatsValidator,
+});
+
+/** The submission this token opens, or an error. Never another student's. */
+async function requireOpenSubmission(
+  ctx: MutationCtx,
+  submissionId: Id<"submissions">,
+  resumeToken: string,
+) {
+  const submission = await ctx.db.get("submissions", submissionId);
+  if (!submission || submission.resumeToken !== resumeToken) {
+    throw new Error("Invalid submission token.");
+  }
+  if (submission.status !== "in_progress") throw new Error("Submission is already complete.");
+  return submission;
+}
+
+async function writeAnswer(
+  ctx: MutationCtx,
+  submission: Doc<"submissions">,
+  saved: Infer<typeof savedAnswerValidator>,
+) {
+  const question = await ctx.db.get("assignmentQuestions", saved.questionId);
+  if (!question || question.assignmentId !== submission.assignmentId) {
+    throw new Error("Question does not belong to this homework.");
+  }
+
+  const existing = await ctx.db
+    .query("answers")
+    .withIndex("by_submissionId_and_questionId", (q) =>
+      q.eq("submissionId", submission._id).eq("questionId", saved.questionId),
+    )
+    .unique();
+  const record = {
+    response: saved.response,
+    activeMs: Math.round(saved.stats.activeMs),
+    lookupCount: saved.stats.lookupCount,
+    revisionCount: saved.stats.revisionCount,
+    answeredAt: Date.now(),
+  };
+  if (existing) await ctx.db.patch("answers", existing._id, record);
+  else
+    await ctx.db.insert("answers", {
+      ...(submission.ownerId ? { ownerId: submission.ownerId } : {}),
+      submissionId: submission._id,
+      questionId: saved.questionId,
+      ...record,
+    });
+}
+
 export const saveAnswer = mutation({
   args: {
     submissionId: v.id("submissions"),
@@ -155,36 +160,35 @@ export const saveAnswer = mutation({
   },
   returns: v.null(),
   handler: async (ctx, args) => {
-    const submission = await ctx.db.get("submissions", args.submissionId);
-    if (!submission || submission.resumeToken !== args.resumeToken) {
-      throw new Error("Invalid submission token.");
-    }
-    if (submission.status !== "in_progress") throw new Error("Submission is already complete.");
-    const question = await ctx.db.get("assignmentQuestions", args.questionId);
-    if (!question || question.assignmentId !== submission.assignmentId) {
-      throw new Error("Question does not belong to this homework.");
-    }
-
-    const existing = await ctx.db
-      .query("answers")
-      .withIndex("by_submissionId_and_questionId", (q) =>
-        q.eq("submissionId", args.submissionId).eq("questionId", args.questionId),
-      )
-      .unique();
-    const record = {
+    const submission = await requireOpenSubmission(ctx, args.submissionId, args.resumeToken);
+    await writeAnswer(ctx, submission, {
+      questionId: args.questionId,
       response: args.response,
-      activeMs: Math.round(args.stats.activeMs),
-      lookupCount: args.stats.lookupCount,
-      revisionCount: args.stats.revisionCount,
-      answeredAt: Date.now(),
-    };
-    if (existing) await ctx.db.patch("answers", existing._id, record);
-    else
-      await ctx.db.insert("answers", {
-        submissionId: args.submissionId,
-        questionId: args.questionId,
-        ...record,
-      });
+      stats: args.stats,
+    });
+    return null;
+  },
+});
+
+/**
+ * A whole section in one transaction. The student answers a screenful at a time
+ * now, so saving it one activity at a time was twenty round trips on every
+ * navigation — and a failure halfway through left some answers stored and the
+ * rest not, with the player believing it had saved them all.
+ */
+export const saveSectionAnswers = mutation({
+  args: {
+    submissionId: v.id("submissions"),
+    resumeToken: v.string(),
+    answers: v.array(savedAnswerValidator),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    if (args.answers.length > MAX_SECTION_QUESTIONS) {
+      throw new Error("Save one section at a time.");
+    }
+    const submission = await requireOpenSubmission(ctx, args.submissionId, args.resumeToken);
+    for (const saved of args.answers) await writeAnswer(ctx, submission, saved);
     return null;
   },
 });
@@ -209,16 +213,12 @@ export const submit = mutation({
       .withIndex("by_submissionId", (q) => q.eq("submissionId", submission._id))
       .take(MAX_QUESTIONS);
 
-    let score = 0;
-    let pendingReviewCount = 0;
     let activeMs = 0;
     let lookupCount = 0;
     for (const answer of answers) {
       const question = await ctx.db.get("assignmentQuestions", answer.questionId);
       if (!question || question.assignmentId !== submission.assignmentId) continue;
       const graded = gradeResponse(question.content, answer.response, question.points);
-      if (graded.correctness === "pending_review") pendingReviewCount += 1;
-      score += graded.pointsAwarded;
       activeMs += answer.activeMs;
       lookupCount += answer.lookupCount;
       await ctx.db.patch("answers", answer._id, {
@@ -227,22 +227,38 @@ export const submit = mutation({
       });
     }
 
+    /**
+     * Totalled from the questions, not from this loop: the loop only sees
+     * answers that exist, and the worksheet's own skipped activities have to
+     * count against the score. Read after the patches above, so it sees them.
+     */
+    const totals = await calculateSubmissionTotals(ctx, submission);
     await ctx.db.patch("submissions", submission._id, {
       status: "submitted",
       submittedAt: Date.now(),
-      score,
-      pendingReviewCount,
+      score: totals.score,
+      maxAutoScore: totals.maxScore,
+      pendingReviewCount: totals.pendingReviewCount,
       activeMs,
       lookupCount,
     });
     return {
-      score,
-      maxAutoScore: submission.maxAutoScore,
+      score: totals.score,
+      maxAutoScore: totals.maxScore,
       percentage:
-        submission.maxAutoScore === 0 ? 0 : Math.round((score / submission.maxAutoScore) * 100),
-      pendingReviewCount,
+        totals.maxScore === 0 ? 0 : Math.round((totals.score / totals.maxScore) * 100),
+      pendingReviewCount: totals.pendingReviewCount,
     };
   },
+});
+
+/** One verdict inside an activity: a blank, a gap, a pair, a flagged mistake. */
+const answerPartValidator = v.object({
+  label: v.string(),
+  given: v.string(),
+  expected: v.string(),
+  isCorrect: v.boolean(),
+  reason: v.union(v.string(), v.null()),
 });
 
 const reviewItemValidator = v.object({
@@ -266,15 +282,7 @@ const reviewItemValidator = v.object({
   explanation: v.string(),
   /** The order events really happened in, for a tense or sequence question. */
   timeline: v.array(v.string()),
-  parts: v.array(
-    v.object({
-      label: v.string(),
-      given: v.string(),
-      expected: v.string(),
-      isCorrect: v.boolean(),
-      reason: v.union(v.string(), v.null()),
-    }),
-  ),
+  parts: v.array(answerPartValidator),
 });
 
 /**
@@ -356,56 +364,110 @@ export const review = query({
   },
 });
 
-export const gradePendingAnswer = mutation({
+const sectionCheckStatusValidator = v.union(
+  v.literal("correct"),
+  v.literal("partial"),
+  v.literal("incorrect"),
+  /** A written answer: nothing here can be marked without the teacher. */
+  v.literal("needs_teacher"),
+  v.literal("unanswered"),
+);
+
+/**
+ * Marks one section mid-homework, without revealing anything. The student asked
+ * "did I get these right?", so they are told exactly that and no more: a verdict
+ * per activity, a verdict per blank or gap where the widget has several, and the
+ * section's score. Nothing is written — this changes no grade and no answer, so a
+ * student can check, rework what is red, and check again.
+ */
+export const checkSection = query({
   args: {
     submissionId: v.id("submissions"),
-    questionId: v.id("assignmentQuestions"),
-    correctness: teacherGradeCorrectnessValidator,
-    pointsAwarded: v.number(),
+    resumeToken: v.string(),
+    questionIds: v.array(v.id("assignmentQuestions")),
   },
-  returns: v.object({
-    score: v.number(),
-    maxScore: v.number(),
-    pendingReviewCount: v.number(),
-  }),
+  returns: v.union(
+    v.object({
+      score: v.number(),
+      maxScore: v.number(),
+      correctCount: v.number(),
+      gradedCount: v.number(),
+      items: v.array(
+        v.object({
+          questionId: v.id("assignmentQuestions"),
+          status: sectionCheckStatusValidator,
+          /**
+           * One entry per blank, gap or pair, in the order the widget draws
+           * them. Empty for an activity with a single verdict, and for multiple
+           * choice — a per-option verdict there would point straight at the
+           * answer the student did not pick.
+           */
+          parts: v.array(v.boolean()),
+        }),
+      ),
+    }),
+    v.null(),
+  ),
   handler: async (ctx, args) => {
     const submission = await ctx.db.get("submissions", args.submissionId);
-    if (!submission) throw new Error("Submission not found.");
-    if (submission.status !== "submitted") {
-      throw new Error("Only submitted homework can be reviewed.");
+    if (!submission) return null;
+    if (submission.resumeToken !== args.resumeToken) {
+      throw new Error("Invalid submission token.");
+    }
+    if (args.questionIds.length > MAX_SECTION_QUESTIONS) {
+      throw new Error("Check one section at a time.");
     }
 
-    const answer = await ctx.db
+    const answers = await ctx.db
       .query("answers")
-      .withIndex("by_submissionId_and_questionId", (q) =>
-        q.eq("submissionId", args.submissionId).eq("questionId", args.questionId),
-      )
-      .unique();
-    if (!answer) throw new Error("Answer not found.");
-    if (answer.correctness !== "pending_review") {
-      throw new Error("This answer is no longer awaiting review.");
+      .withIndex("by_submissionId", (q) => q.eq("submissionId", submission._id))
+      .take(MAX_QUESTIONS);
+    const answersByQuestionId = new Map(answers.map((answer) => [answer.questionId, answer]));
+
+    let score = 0;
+    let maxScore = 0;
+    let correctCount = 0;
+    let gradedCount = 0;
+    const items: {
+      questionId: Id<"assignmentQuestions">;
+      status: "correct" | "partial" | "incorrect" | "needs_teacher" | "unanswered";
+      parts: boolean[];
+    }[] = [];
+
+    for (const questionId of args.questionIds) {
+      const question = await ctx.db.get("assignmentQuestions", questionId);
+      if (!question || question.assignmentId !== submission.assignmentId) {
+        throw new Error("Question does not belong to this homework.");
+      }
+      const answer = answersByQuestionId.get(questionId);
+      if (!isAutoGradable(question.content)) {
+        items.push({ questionId, status: "needs_teacher" as const, parts: [] });
+        continue;
+      }
+      if (!answer) {
+        maxScore += question.points;
+        gradedCount += 1;
+        items.push({ questionId, status: "unanswered" as const, parts: [] });
+        continue;
+      }
+
+      const graded = gradeResponse(question.content, answer.response, question.points);
+      score += graded.pointsAwarded;
+      maxScore += question.points;
+      gradedCount += 1;
+      if (graded.correctness === "correct") correctCount += 1;
+      const parts =
+        question.content.kind === "multiple_choice"
+          ? []
+          : gradeResponseParts(question.content, answer.response).map((part) => part.isCorrect);
+      items.push({
+        questionId,
+        status: graded.correctness === "pending_review" ? ("needs_teacher" as const) : graded.correctness,
+        parts,
+      });
     }
 
-    const question = await ctx.db.get("assignmentQuestions", args.questionId);
-    if (!question || question.assignmentId !== submission.assignmentId) {
-      throw new Error("Question does not belong to this submission.");
-    }
-    if (question.content.kind !== "open_response") {
-      throw new Error("Only written answers can be reviewed manually.");
-    }
-    requireValidTeacherGrade(args.correctness, args.pointsAwarded, question.points);
-
-    await ctx.db.patch("answers", answer._id, {
-      correctness: args.correctness,
-      pointsAwarded: args.pointsAwarded,
-    });
-    const totals = await calculateReviewedSubmissionTotals(ctx, submission._id);
-    await ctx.db.patch("submissions", submission._id, {
-      score: totals.score,
-      maxAutoScore: totals.maxScore,
-      pendingReviewCount: totals.pendingReviewCount,
-    });
-    return totals;
+    return { score, maxScore, correctCount, gradedCount, items };
   },
 });
 
@@ -413,6 +475,12 @@ export const attachAiSummary = mutation({
   args: { submissionId: v.id("submissions"), summary: aiSummaryValidator },
   returns: v.null(),
   handler: async (ctx, args) => {
+    const user = await requireCurrentUser(ctx);
+    requireOwned(
+      await ctx.db.get("submissions", args.submissionId),
+      user._id,
+      "Submission not found.",
+    );
     await ctx.db.patch("submissions", args.submissionId, { aiSummary: args.summary });
     return null;
   },
@@ -444,12 +512,15 @@ export const detail = query({
           instructions: v.string(),
           content: questionContentValidator,
           publicContent: publicQuestionContentValidator,
+          set: v.optional(questionSetValidator),
           skillTags: v.array(v.string()),
           points: v.number(),
           answered: v.boolean(),
+          parts: v.array(answerPartValidator),
           response: v.optional(answerResponseValidator),
           pointsAwarded: v.optional(v.number()),
           correctness: v.optional(correctnessValidator),
+          isProvisional: v.boolean(),
           responseText: v.string(),
           correctAnswer: v.union(v.string(), v.null()),
           explanation: v.string(),
@@ -461,5 +532,8 @@ export const detail = query({
     }),
     v.null(),
   ),
-  handler: async (ctx, args) => loadSubmissionDetail(ctx, args.submissionId),
+  handler: async (ctx, args) => {
+    const user = await requireCurrentUser(ctx);
+    return loadSubmissionDetail(ctx, args.submissionId, user._id);
+  },
 });

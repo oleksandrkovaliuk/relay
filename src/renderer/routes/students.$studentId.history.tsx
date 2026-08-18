@@ -29,7 +29,7 @@ function StudentHistoryRoute() {
     <>
       <PageHeader
         title={student ? `${student.name}'s homework` : "Homework review"}
-        description="Every answer as the student left it, with your grade where one is needed."
+        description="Every answer as the student left it, marked where Relay could mark it."
       />
       <SubmissionReview
         studentId={studentId as Id<"students">}

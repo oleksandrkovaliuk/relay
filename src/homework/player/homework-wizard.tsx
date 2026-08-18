@@ -16,6 +16,12 @@ type HomeworkWizardProps = {
   instructions?: string;
   /** The interactive answer widget. */
   children: ReactNode;
+  /**
+   * Content above everything else on the step — the cheat sheet lives here.
+   * A reference the student is meant to consult while answering has to be where
+   * they land, not under a screen of activities they have to scroll past.
+   */
+  aside?: ReactNode;
   /** Extra content under the widget: errors, answer keys, teacher notes. */
   supplement?: ReactNode;
   /** Teacher-only tools that should float above the navigation footer. */
@@ -28,6 +34,8 @@ type HomeworkWizardProps = {
   answeredSteps?: boolean[];
   /** Makes the step rail navigable, so a skipped step can be returned to. */
   onSelectStep?: (step: number) => void;
+  /** What one step is called here: a student walks sections, not activities. */
+  stepNoun?: string;
   className?: string;
   bodyClassName?: string;
 };
@@ -43,6 +51,7 @@ export function HomeworkWizard({
   prompt,
   instructions,
   children,
+  aside,
   supplement,
   floatingPanel,
   meta,
@@ -50,6 +59,7 @@ export function HomeworkWizard({
   next,
   answeredSteps,
   onSelectStep,
+  stepNoun = "Step",
   className,
   bodyClassName,
 }: HomeworkWizardProps) {
@@ -68,7 +78,7 @@ export function HomeworkWizard({
       <header className="flex flex-wrap items-center justify-between gap-x-6 gap-y-2 border-b border-border/70 px-4 py-3.5 sm:px-8 sm:py-4">
         <div className="flex min-w-0 items-center gap-3 sm:gap-4">
           <p className="shrink-0 text-[13px] font-medium text-muted-foreground numeric">
-            Step {safeCurrentStep} of {safeTotalSteps}
+            {stepNoun} {safeCurrentStep} of {safeTotalSteps}
           </p>
           <HomeworkStepDots
             currentStep={safeCurrentStep}
@@ -89,6 +99,7 @@ export function HomeworkWizard({
         )}
       >
         <div className="phase-enter mx-auto w-full max-w-[46rem]">
+          {aside ? <div className="mb-6">{aside}</div> : null}
           {eyebrow ? (
             <p className="text-[12px] font-semibold uppercase tracking-[0.09em] text-muted-foreground">
               {eyebrow}

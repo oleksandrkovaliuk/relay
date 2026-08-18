@@ -3,6 +3,8 @@ import { mkdir } from "node:fs/promises";
 import { extname } from "node:path";
 import { promisify } from "node:util";
 
+import type { z, ZodType } from "zod";
+
 import {
   query,
   type ElicitationRequest,
@@ -56,7 +58,12 @@ import { allowBoardAttachTools, allowReadOnlyMiroTools } from "./tool-policy";
 
 const execFileAsync = promisify(execFile);
 const CLAUDE_COMMAND_TIMEOUT_MILLISECONDS = 10_000;
-const CLAUDE_GENERATION_TIMEOUT_MILLISECONDS = 5 * 60_000;
+/**
+ * A set is now a full worksheet — dozens of activities in one structured answer
+ * — so a generation that would once have been abandoned as stuck is simply a
+ * long one. Cancelling it at five minutes threw away work that was nearly done.
+ */
+const CLAUDE_GENERATION_TIMEOUT_MILLISECONDS = 12 * 60_000;
 const MIRO_MCP_URL = "https://mcp.miro.com";
 /** Bounded generously: the model often needs a reasoning turn before it emits structured output. */
 const GENERATION_MAX_TURNS = 8;
@@ -97,6 +104,32 @@ function errorMessage(error: unknown) {
   return "Claude Code failed for an unknown reason.";
 }
 
+/**
+ * A model answer that does not fit the contract, said in a sentence. Zod's own
+ * report is a JSON array of issue objects, and it was being shown to the teacher
+ * verbatim: `[{ "expected": "number", "code": "invalid_type", ... }]` tells them
+ * nothing about what to do next.
+ */
+const MAX_REPORTED_ISSUES = 3;
+
+function parseOrExplain<Schema extends ZodType>(
+  schema: Schema,
+  value: unknown,
+  subject: string,
+): z.infer<Schema> {
+  const parsed = schema.safeParse(value);
+  if (parsed.success) return parsed.data;
+  const issues = parsed.error.issues
+    .slice(0, MAX_REPORTED_ISSUES)
+    .map((issue) => `${issue.path.join(".") || subject} — ${issue.message}`);
+  const hidden = parsed.error.issues.length - issues.length;
+  throw new Error(
+    `Claude's ${subject} did not fit Relay's format: ${issues.join("; ")}${
+      hidden > 0 ? ` (and ${hidden} more)` : ""
+    }. Generating again usually fixes it.`,
+  );
+}
+
 function resultErrorMessage(message: SDKResultMessage) {
   if (message.subtype === "success") return null;
   // `errors` is not present on every runtime's result, and reading it blindly
@@ -113,7 +146,7 @@ function resultErrorMessage(message: SDKResultMessage) {
 function readRewrittenQuestion(structuredOutput: unknown) {
   const enveloped = questionRewriteOutputSchema.safeParse(structuredOutput);
   if (enveloped.success) return enveloped.data.question;
-  return homeworkQuestionSchema.parse(structuredOutput);
+  return parseOrExplain(homeworkQuestionSchema, structuredOutput, "revised activity");
 }
 
 function textDelta(message: SDKMessage) {
@@ -206,7 +239,7 @@ export class ClaudeService {
     return claudeGenerationResultSchema.parse({
       requestId: input.requestId,
       sessionId: completion.sessionId,
-      draft: homeworkDraftSchema.parse(completion.structuredOutput),
+      draft: parseOrExplain(homeworkDraftSchema, completion.structuredOutput, "homework"),
       durationMilliseconds: completion.durationMilliseconds,
       estimatedCostUsd: completion.estimatedCostUsd,
     });
@@ -225,7 +258,7 @@ export class ClaudeService {
     );
     return claudeSummaryResultSchema.parse({
       requestId: input.requestId,
-      summary: submissionSummarySchema.parse(completion.structuredOutput),
+      summary: parseOrExplain(submissionSummarySchema, completion.structuredOutput, "summary"),
     });
   }
 

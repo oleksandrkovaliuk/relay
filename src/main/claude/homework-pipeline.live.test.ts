@@ -49,9 +49,11 @@ it(
           "A2 learner. Says 'I have been to the shop yesterday'. Struggles with present perfect vs past simple and forgets third-person -s.",
         lessonNotes: "We talked about weekend routines and finished holidays.",
         targetSkills: [],
-        durationMinutes: 10,
         difficulty: "beginner",
-        activityTypes: [],
+        activityPlan: [
+          { type: "multiple_choice", itemCount: 4 },
+          { type: "fill_blank", itemCount: 4 },
+        ],
       },
       () => undefined,
     );

@@ -37,7 +37,7 @@ function SubmissionReviewRoute() {
     <>
       <PageHeader
         title={detail ? `${detail.studentName}'s homework` : "Homework review"}
-        description="Every answer as the student left it, with your grade where one is needed."
+        description="Every answer as the student left it, marked where Relay could mark it."
       />
       <SubmissionReview
         studentId={null}

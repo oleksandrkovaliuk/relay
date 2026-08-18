@@ -1,10 +1,17 @@
 import { v } from "convex/values";
 
+import type { Doc } from "./_generated/dataModel";
 import { mutation, query } from "./_generated/server";
+import { requireCurrentUser, requireOwned } from "./auth";
+import { deleteSubmissionCascade, MAX_SUBMISSIONS_PER_DELETION } from "./deletion";
 import { loadSubmissionFeedback, submissionFeedbackValueValidator } from "./feedback";
 
 const MAX_STUDENTS = 200;
 const MAX_HISTORY_PER_STUDENT = 20;
+/** Assignment links one student can hold. */
+const MAX_ASSIGNMENT_LINKS = 200;
+/** Rows scanned when unlinking a deleted student from the teacher's own work. */
+const MAX_LINKED_ROWS = 400;
 
 const studentValidator = v.object({
   _id: v.id("students"),
@@ -16,6 +23,19 @@ const studentValidator = v.object({
   status: v.union(v.literal("active"), v.literal("archived")),
   createdAt: v.number(),
 });
+
+function toStudentValue(student: Doc<"students">) {
+  return {
+    _id: student._id,
+    _creationTime: student._creationTime,
+    name: student.name,
+    ...(student.email ? { email: student.email } : {}),
+    ...(student.miroBoardUrl ? { miroBoardUrl: student.miroBoardUrl } : {}),
+    contextNotes: student.contextNotes,
+    status: student.status,
+    createdAt: student.createdAt,
+  };
+}
 
 function requireName(name: string) {
   const trimmed = name.trim();
@@ -44,14 +64,19 @@ export const list = query({
     }),
   ),
   handler: async (ctx) => {
+    const user = await requireCurrentUser(ctx);
     const students = await ctx.db
       .query("students")
-      .withIndex("by_status_and_createdAt", (q) => q.eq("status", "active"))
+      .withIndex("by_ownerId_and_status_and_createdAt", (q) =>
+        q.eq("ownerId", user._id).eq("status", "active"),
+      )
       .order("desc")
       .take(MAX_STUDENTS);
     const assignments = await ctx.db
       .query("assignments")
-      .withIndex("by_status_and_publishedAt", (q) => q.eq("status", "published"))
+      .withIndex("by_ownerId_and_status_and_publishedAt", (q) =>
+        q.eq("ownerId", user._id).eq("status", "published"),
+      )
       .order("desc")
       .take(MAX_STUDENTS);
 
@@ -82,7 +107,7 @@ export const list = query({
                 ) / scored.length,
               );
         return {
-          ...student,
+          ...toStudentValue(student),
           assignmentCount: new Set([
             ...assignmentLinks.map((link) => link.assignmentId),
             ...assignments
@@ -103,7 +128,11 @@ export const list = query({
 export const get = query({
   args: { studentId: v.id("students") },
   returns: v.union(studentValidator, v.null()),
-  handler: async (ctx, args) => ctx.db.get("students", args.studentId),
+  handler: async (ctx, args) => {
+    const user = await requireCurrentUser(ctx);
+    const student = await ctx.db.get("students", args.studentId);
+    return student?.ownerId === user._id ? toStudentValue(student) : null;
+  },
 });
 
 export const history = query({
@@ -123,6 +152,8 @@ export const history = query({
     }),
   ),
   handler: async (ctx, args) => {
+    const user = await requireCurrentUser(ctx);
+    requireOwned(await ctx.db.get("students", args.studentId), user._id, "Student not found.");
     const submissions = await ctx.db
       .query("submissions")
       .withIndex("by_studentId_and_startedAt", (q) => q.eq("studentId", args.studentId))
@@ -130,7 +161,7 @@ export const history = query({
       .take(MAX_HISTORY_PER_STUDENT);
 
     return Promise.all(
-      submissions.map(async (submission) => {
+      submissions.filter((submission) => submission.ownerId === user._id).map(async (submission) => {
         const assignment = await ctx.db.get("assignments", submission.assignmentId);
         const feedback = await loadSubmissionFeedback(ctx, submission._id);
         return {
@@ -159,9 +190,11 @@ export const create = mutation({
   },
   returns: v.id("students"),
   handler: async (ctx, args) => {
+    const user = await requireCurrentUser(ctx);
     const miroBoardUrl = requireMiroBoardUrl(args.miroBoardUrl);
     const email = args.email?.trim();
     return ctx.db.insert("students", {
+      ownerId: user._id,
       name: requireName(args.name),
       ...(email ? { email } : {}),
       ...(miroBoardUrl ? { miroBoardUrl } : {}),
@@ -182,11 +215,16 @@ export const update = mutation({
   },
   returns: v.null(),
   handler: async (ctx, args) => {
-    const student = await ctx.db.get("students", args.studentId);
-    if (!student) throw new Error("Student not found.");
+    const user = await requireCurrentUser(ctx);
+    const student = requireOwned(
+      await ctx.db.get("students", args.studentId),
+      user._id,
+      "Student not found.",
+    );
     const miroBoardUrl = requireMiroBoardUrl(args.miroBoardUrl);
     const email = args.email?.trim();
     await ctx.db.replace("students", args.studentId, {
+      ownerId: user._id,
       name: requireName(args.name),
       ...(email ? { email } : {}),
       ...(miroBoardUrl ? { miroBoardUrl } : {}),
@@ -198,10 +236,87 @@ export const update = mutation({
   },
 });
 
+/**
+ * Deletes a learner and everything that was only ever about them: their
+ * attempts, the answers inside those attempts, their feedback, and the links
+ * that assigned homework to them. The homework itself is the teacher's own
+ * material and survives — a set was always reusable, and losing it because a
+ * student left would be losing the wrong thing.
+ *
+ * History can be long, so the work is bounded and the mutation says whether it
+ * finished. The caller repeats it until it has: the student row is deleted last,
+ * so an interrupted delete leaves a student who is still there to try again.
+ */
+export const remove = mutation({
+  args: { studentId: v.id("students") },
+  returns: v.object({
+    isComplete: v.boolean(),
+    deletedSubmissionCount: v.number(),
+  }),
+  handler: async (ctx, args) => {
+    const user = await requireCurrentUser(ctx);
+    const student = requireOwned(
+      await ctx.db.get("students", args.studentId),
+      user._id,
+      "Student not found.",
+    );
+
+    const submissions = await ctx.db
+      .query("submissions")
+      .withIndex("by_studentId_and_startedAt", (q) => q.eq("studentId", student._id))
+      .take(MAX_SUBMISSIONS_PER_DELETION);
+    for (const submission of submissions) await deleteSubmissionCascade(ctx, submission._id);
+    if (submissions.length === MAX_SUBMISSIONS_PER_DELETION) {
+      return { isComplete: false, deletedSubmissionCount: submissions.length };
+    }
+
+    const links = await ctx.db
+      .query("assignmentStudents")
+      .withIndex("by_studentId_and_assignmentId", (q) => q.eq("studentId", student._id))
+      .take(MAX_ASSIGNMENT_LINKS);
+    for (const link of links) await ctx.db.delete("assignmentStudents", link._id);
+
+    /**
+     * Anything that merely names them stops naming them. A dangling id is worse
+     * than an unnamed row: publishing a draft whose student no longer exists
+     * fails on an assignee it cannot load.
+     */
+    const assignments = await ctx.db
+      .query("assignments")
+      .withIndex("by_ownerId", (q) => q.eq("ownerId", user._id))
+      .take(MAX_LINKED_ROWS);
+    for (const assignment of assignments) {
+      if (assignment.studentId !== student._id) continue;
+      await ctx.db.patch("assignments", assignment._id, { studentId: undefined });
+    }
+    const drafts = await ctx.db
+      .query("homeworkDrafts")
+      .withIndex("by_ownerId", (q) => q.eq("ownerId", user._id))
+      .take(MAX_LINKED_ROWS);
+    for (const draft of drafts) {
+      if (draft.studentId !== student._id) continue;
+      await ctx.db.patch("homeworkDrafts", draft._id, { studentId: undefined });
+    }
+    const jobs = await ctx.db
+      .query("aiJobs")
+      .withIndex("by_ownerId", (q) => q.eq("ownerId", user._id))
+      .take(MAX_LINKED_ROWS);
+    for (const job of jobs) {
+      if (job.studentId !== student._id) continue;
+      await ctx.db.patch("aiJobs", job._id, { studentId: undefined });
+    }
+
+    await ctx.db.delete("students", student._id);
+    return { isComplete: true, deletedSubmissionCount: submissions.length };
+  },
+});
+
 export const archive = mutation({
   args: { studentId: v.id("students") },
   returns: v.null(),
   handler: async (ctx, args) => {
+    const user = await requireCurrentUser(ctx);
+    requireOwned(await ctx.db.get("students", args.studentId), user._id, "Student not found.");
     await ctx.db.patch("students", args.studentId, { status: "archived" });
     return null;
   },
