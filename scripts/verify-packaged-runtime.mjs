@@ -5,7 +5,7 @@
  * app that crashed on launch looking for `ajv`. The main process implements the
  * `--smoke-test` side of this handshake and exits 0 only once the window has loaded.
  */
-import { existsSync, mkdtempSync, readdirSync, rmSync, statSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync } from "node:fs";
 import { spawn } from "node:child_process";
 import { basename, join, sep } from "node:path";
 import { tmpdir } from "node:os";
@@ -75,47 +75,40 @@ function runSmokeTest(command, userDataDir) {
 }
 
 /**
- * Anchors on `app.asar`, which every platform's layout contains, instead of guessing the
- * executable's name. electron-builder derives that name differently per platform — macOS
- * and Windows use `productName`, Linux uses the package `name` — so a hardcoded guess
- * silently found nothing on Linux.
+ * Anchors on `app.asar`, which every platform's layout contains, then names the launcher
+ * from electron-builder's documented defaults: macOS and Windows use `productName`, Linux
+ * uses the package `name`. Scanning the directory for "something executable" instead picks
+ * up Chromium's own helpers (`chrome-sandbox`, `chrome_crashpad_handler`), so the name is
+ * derived rather than guessed — and a miss reports what it looked for.
  */
 function findPackagedExecutable() {
   const archivePath = newest(walk(DIST_DIRECTORY).filter((path) => basename(path) === "app.asar"));
   if (!archivePath) return undefined;
 
-  // macOS: <root>/Relay.app/Contents/Resources/app.asar, and the launcher is the single
-  // entry in Contents/MacOS.
+  const manifest = JSON.parse(
+    readFileSync(new URL("../package.json", import.meta.url), "utf8"),
+  );
+
+  // macOS: <root>/Relay.app/Contents/Resources/app.asar
   const macResources = `${sep}Contents${sep}Resources${sep}app.asar`;
   if (archivePath.endsWith(macResources)) {
     const appBundle = archivePath.slice(0, -macResources.length);
-    const launcherDirectory = join(appBundle, "Contents", "MacOS");
-    const launcher = readdirSync(launcherDirectory, { withFileTypes: true }).find((entry) =>
-      entry.isFile(),
-    );
-    return launcher ? join(launcherDirectory, launcher.name) : undefined;
+    return expect(join(appBundle, "Contents", "MacOS", manifest.productName));
   }
 
-  // Windows and Linux: <root>/resources/app.asar, with the executable directly in <root>.
+  // Windows and Linux: <root>/resources/app.asar, launcher directly in <root>.
   const appRoot = join(archivePath, "..", "..");
-  const candidates = readdirSync(appRoot, { withFileTypes: true })
-    .filter((entry) => entry.isFile())
-    .map((entry) => entry.name);
-
-  if (process.platform === "win32") {
-    const executable = candidates.find((name) => name.toLowerCase().endsWith(".exe"));
-    return executable ? join(appRoot, executable) : undefined;
-  }
-
-  // `chrome-sandbox` is the setuid helper, not the app; shared objects carry an extension.
-  const executable = candidates.find(
-    (name) => name !== "chrome-sandbox" && !name.includes(".") && isExecutable(join(appRoot, name)),
-  );
-  return executable ? join(appRoot, executable) : undefined;
+  const launcherName =
+    process.platform === "win32" ? `${manifest.productName}.exe` : manifest.name;
+  return expect(join(appRoot, launcherName));
 }
 
-function isExecutable(path) {
-  return (statSync(path).mode & 0o111) !== 0;
+function expect(executablePath) {
+  if (existsSync(executablePath)) return executablePath;
+
+  const directory = join(executablePath, "..");
+  const contents = existsSync(directory) ? readdirSync(directory).join(", ") : "(missing)";
+  fail(`Expected the packaged launcher at ${executablePath}. That directory holds: ${contents}`);
 }
 
 /** Several `dir` builds can accumulate in `dist/`; the freshest is the one under test. */
