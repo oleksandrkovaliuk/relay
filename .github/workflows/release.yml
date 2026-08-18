@@ -39,7 +39,7 @@ jobs:
       - uses: actions/checkout@v5
       - uses: pnpm/action-setup@v4
         with:
-          version: 11
+          version: 10.34.4
       - uses: actions/setup-node@v5
         with:
           node-version: 24
@@ -52,6 +52,17 @@ jobs:
           test -n "$VITE_CLERK_PUBLISHABLE_KEY"
           test -n "$VITE_PLAYER_ORIGIN"
       - run: pnpm build
+
+      # Build an unpacked app first and launch its actual Electron main process, so a
+      # runtime module missing from app.asar fails the release instead of shipping.
+      # Signing is skipped here: this step tests module resolution, not Gatekeeper, and
+      # the signed bundle is produced by the publishing step below.
+      - name: Build packaged runtime for smoke test
+        run: >
+          pnpm exec electron-builder ${{ matrix.target }} dir --publish never
+          ${{ matrix.os == 'macos-15' && '--config.mac.identity=null --config.mac.hardenedRuntime=false' || '' }}
+      - name: Launch the packaged app
+        run: ${{ matrix.os == 'ubuntu-latest' && 'xvfb-run -a ' || '' }}pnpm verify:packaged
 
       # Notarization stays off in electron-builder.yml so local builds are fast and
       # offline; it is switched on here only when the Apple credentials exist.

@@ -19,7 +19,7 @@ jobs:
       - uses: actions/checkout@v5
       - uses: pnpm/action-setup@v4
         with:
-          version: 11
+          version: 10.34.4
       - uses: actions/setup-node@v5
         with:
           node-version: 24
@@ -34,6 +34,32 @@ jobs:
           VITE_CLERK_PUBLISHABLE_KEY: ${{ vars.VITE_CLERK_PUBLISHABLE_KEY }}
           VITE_PLAYER_ORIGIN: ${{ vars.VITE_PLAYER_ORIGIN }}
 
+  # `pnpm check` compiles the renderer but never runs the packaged app, so it cannot
+  # see a runtime dependency that failed to make it into `app.asar`. That is how 0.3.1
+  # shipped an app which crashed on launch looking for `ajv`. Packaging and launching a
+  # Linux build is the cheapest gate that reproduces the real module resolution.
+  packaged-runtime:
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.34.4
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+        env:
+          VITE_CONVEX_URL: ${{ vars.VITE_CONVEX_URL }}
+          VITE_CLERK_PUBLISHABLE_KEY: ${{ vars.VITE_CLERK_PUBLISHABLE_KEY }}
+          VITE_PLAYER_ORIGIN: ${{ vars.VITE_PLAYER_ORIGIN }}
+      - run: pnpm exec electron-builder --linux dir --publish never
+      - name: Launch the packaged app
+        run: xvfb-run -a pnpm verify:packaged
+
   deploy:
     needs: check
     if: github.event_name == 'push'
@@ -43,7 +69,7 @@ jobs:
       - uses: actions/checkout@v5
       - uses: pnpm/action-setup@v4
         with:
-          version: 11
+          version: 10.34.4
       - uses: actions/setup-node@v5
         with:
           node-version: 24

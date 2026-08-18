@@ -11,14 +11,20 @@ import { ClaudeService } from "./claude/claude-service";
 import { registerClaudeConnectionIpc } from "./claude/register-claude-connection-ipc";
 import { registerClaudeIpc } from "./claude/register-claude-ipc";
 import { resolveClaudeExecutable } from "./claude/resolve-claude-executable";
-import { withoutBrowserOriginForNativeClerkRequest } from "./clerk-native-request";
+import { resolveClerkFrontendApiHost } from "./clerk-frontend-api";
+import {
+  withRendererCorsForNativeClerkResponse,
+  withoutBrowserOriginForNativeClerkRequest,
+} from "./clerk-native-request";
 import { registerNotificationIpc } from "./notifications/register-notification-ipc";
 import {
   RENDERER_HOST,
+  RENDERER_ORIGIN,
   RENDERER_SCHEME,
   RENDERER_URL,
   resolveRendererDevelopmentUrl,
   resolveRendererFilePath,
+  shouldOpenInExternalBrowser,
 } from "./renderer-protocol";
 
 /**
@@ -53,10 +59,6 @@ function createWindow() {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
-      // Clerk's native transport deliberately omits browser Origin semantics. Chromium still
-      // applies CORS to Vite's proxied development renderer before Electron can adjust headers.
-      // Packaged builds keep web security enabled.
-      webSecurity: app.isPackaged,
     },
   });
 
@@ -80,11 +82,17 @@ function createWindow() {
     else mainWindow.showInactive();
   });
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-    void shell.openExternal(url);
+    if (shouldOpenInExternalBrowser(url)) void shell.openExternal(url);
     return { action: "deny" };
+  });
+  mainWindow.webContents.on("will-navigate", (event, url) => {
+    if (!shouldOpenInExternalBrowser(url)) return;
+    event.preventDefault();
+    void shell.openExternal(url);
   });
 
   void mainWindow.loadURL(RENDERER_URL);
+  return mainWindow;
 }
 
 function registerRendererProtocol() {
@@ -104,12 +112,31 @@ function registerRendererProtocol() {
   });
 }
 
-function registerNativeClerkRequestHeaders() {
-  session.defaultSession.webRequest.onBeforeSendHeaders((details, callback) => {
+/**
+ * Clerk's Electron transport is a native API client living inside a Chromium page, so
+ * two browser behaviours have to be reconciled with it — and only for its own calls to
+ * its own instance, which is why the filter is scoped to the resolved Frontend API host.
+ */
+function registerClerkNativeTransport(frontendApiHost: string) {
+  const filter = { urls: [`https://${frontendApiHost}/*`] };
+
+  session.defaultSession.webRequest.onBeforeSendHeaders(filter, (details, callback) => {
     callback({
       requestHeaders: withoutBrowserOriginForNativeClerkRequest(
         details.url,
         details.requestHeaders,
+        frontendApiHost,
+      ),
+    });
+  });
+
+  session.defaultSession.webRequest.onHeadersReceived(filter, (details, callback) => {
+    callback({
+      responseHeaders: withRendererCorsForNativeClerkResponse(
+        details.url,
+        details.responseHeaders ?? {},
+        RENDERER_ORIGIN,
+        frontendApiHost,
       ),
     });
   });
@@ -117,6 +144,15 @@ function registerNativeClerkRequestHeaders() {
 
 const DEVELOPMENT_INSPECT_PORT = "9222";
 const LEGACY_USER_DATA_PATH = app.getPath("userData");
+/**
+ * Resolved from the same publishable key the renderer uses, so a development run talks
+ * to the development instance and a packaged build to the production one. The renderer
+ * refuses to start without this key, so a missing host means the app cannot sign in
+ * either way — log it and leave the interceptors unregistered rather than guessing a host.
+ */
+const CLERK_FRONTEND_API_HOST = resolveClerkFrontendApiHost(
+  import.meta.env.VITE_CLERK_PUBLISHABLE_KEY,
+);
 
 // Brand the native menus without moving the local profiles created by earlier ERM builds.
 app.setName("Relay");
@@ -130,12 +166,22 @@ const clerkBridge = createClerkBridge({
   storage: createClerkStorage({ path: app.getPath("userData") }),
   userAgent: `Relay/${app.getVersion()}`,
 });
+const isPackagedSmokeTest = app.isPackaged && process.argv.includes("--smoke-test");
 
 if (!app.isPackaged) {
   app.commandLine.appendSwitch("remote-debugging-port", DEVELOPMENT_INSPECT_PORT);
 }
 
-if (clerkBridge.isPrimaryInstance) {
+if (!clerkBridge.isPrimaryInstance) {
+  // Clerk's bridge already called `app.quit()`; a smoke test must not report a pass it
+  // never performed, so fail loudly instead of exiting 0 alongside the running instance.
+  if (isPackagedSmokeTest) {
+    console.error(
+      "Packaged runtime smoke test aborted: another Relay instance holds the single-instance lock.",
+    );
+    app.exit(1);
+  }
+} else {
   startPrimaryInstance();
 }
 
@@ -144,7 +190,8 @@ function startPrimaryInstance() {
     // Keep the legacy identifier so existing Windows notification permissions remain valid.
     app.setAppUserModelId("com.erm.teacher");
     registerRendererProtocol();
-    registerNativeClerkRequestHeaders();
+    if (CLERK_FRONTEND_API_HOST) registerClerkNativeTransport(CLERK_FRONTEND_API_HOST);
+    else console.error("Could not resolve Clerk's Frontend API host from the publishable key.");
     // In development the dock shows Electron's own icon unless it is replaced.
     const dockIcon = loadAppIcon();
     if (dockIcon && process.platform === "darwin") app.dock?.setIcon(dockIcon);
@@ -164,7 +211,8 @@ function startPrimaryInstance() {
       environment: process.env,
     });
     registerNotificationIpc();
-    createWindow();
+    const mainWindow = createWindow();
+    if (isPackagedSmokeTest) watchPackagedSmokeTest(mainWindow);
 
     app.on("activate", () => {
       if (BrowserWindow.getAllWindows().length === 0) createWindow();
@@ -180,5 +228,51 @@ function startPrimaryInstance() {
 
   app.on("window-all-closed", () => {
     if (process.platform !== "darwin") app.quit();
+  });
+}
+
+/**
+ * The release pipeline runs the real packaged binary through this path. Importing the
+ * main bundle already proves Clerk's storage chain resolves inside `app.asar` — the
+ * class of failure that shipped in 0.3.1, where a missing transitive `ajv` crashed the
+ * app on launch. Loading the window additionally proves the custom protocol serves the
+ * renderer and the preload script runs, none of which a unit test can observe.
+ *
+ * Renderer network calls are expected to fail on a build machine, so success is "the
+ * document loaded", not "the app signed in".
+ */
+function watchPackagedSmokeTest(mainWindow: BrowserWindow) {
+  // Generous, because a cold build agent is slow to paint a first frame. The launcher
+  // script holds a longer deadline still, so whichever fires first reports a reason.
+  const SMOKE_TEST_TIMEOUT_MS = 60_000;
+
+  const finish = (exitCode: number, message: string) => {
+    clearTimeout(timeout);
+    if (exitCode === 0) console.log(message);
+    else console.error(message);
+    clerkBridge.cleanup();
+    // `app.exit` rather than `app.quit`, so the recorded status is this result and not
+    // whatever a `before-quit` handler leaves behind.
+    app.exit(exitCode);
+  };
+
+  const timeout = setTimeout(() => {
+    finish(1, `Packaged runtime smoke test timed out after ${SMOKE_TEST_TIMEOUT_MS}ms.`);
+  }, SMOKE_TEST_TIMEOUT_MS);
+
+  mainWindow.webContents.once("did-finish-load", () => {
+    finish(0, "Packaged runtime smoke test passed: renderer loaded from the relay protocol.");
+  });
+  mainWindow.webContents.once("did-fail-load", (_event, errorCode, errorDescription) => {
+    finish(
+      1,
+      `Packaged runtime smoke test could not load the renderer: ${errorDescription} (${errorCode}).`,
+    );
+  });
+  mainWindow.webContents.once("render-process-gone", (_event, details) => {
+    finish(
+      1,
+      `Packaged runtime smoke test lost the renderer process: ${details.reason}.`,
+    );
   });
 }
