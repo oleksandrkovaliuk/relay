@@ -31,7 +31,7 @@ const CONTROL_FEEDBACK =
 const SIDEBAR_ITEM =
   "flex h-9 items-center gap-2.5 rounded-lg text-[13px] outline-none focus-visible:ring-2 focus-visible:ring-white/20";
 const ACCOUNT_CONTROL =
-  "flex min-h-11 w-full items-center gap-2.5 rounded-lg text-left outline-none hover:bg-white/[0.05] focus-visible:ring-2 focus-visible:ring-white/20";
+  "flex min-h-11 w-full min-w-0 max-w-full items-center gap-2.5 overflow-hidden rounded-lg text-left outline-none hover:bg-white/[0.05] focus-visible:ring-2 focus-visible:ring-white/20";
 const SIDEBAR_COLLAPSED_STORAGE_KEY = "relay:sidebar-collapsed:v1";
 
 export function WorkspaceShell({
@@ -242,7 +242,7 @@ export function WorkspaceShell({
           >
             <TeacherAvatar teacher={teacher} />
             {isSidebarCollapsed ? null : (
-              <span className="min-w-0 flex-1">
+              <span className="min-w-0 flex-1 overflow-hidden">
                 <span className="block truncate text-[12.5px] text-white/85">
                   {describeTeacher(teacher).primary}
                 </span>
