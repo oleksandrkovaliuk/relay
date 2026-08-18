@@ -25,12 +25,16 @@ extraResources:
 
 mac:
   category: public.app-category.education
+  # Apple Silicon only. The release runner is arm64, so pnpm resolves only the arm64
+  # variants of the arch-specific runtime dependencies (`@anthropic-ai/claude-agent-sdk-*`,
+  # `@esbuild/*`). An x64 build on this runner therefore packaged an Intel Electron around
+  # arm64 helpers — a broken app that also made macOS warn about Rosetta being retired.
   # zip alongside dmg: electron-updater reads the zip, humans read the dmg.
   target:
     - target: dmg
-      arch: [arm64, x64]
+      arch: [arm64]
     - target: zip
-      arch: [arm64, x64]
+      arch: [arm64]
   # Production builds discover a Developer ID identity from CSC_LINK. The release
   # workflow explicitly falls back to ad-hoc signing while those credentials are
   # unavailable, which keeps Apple Silicon builds internally consistent.
@@ -45,9 +49,12 @@ dmg:
   artifactName: ${productName}-${version}-${arch}.${ext}
 
 win:
+  # x64 only, for the same reason as macOS: the release runner is x64, so an arm64
+  # installer would carry x64 helper binaries. Windows on ARM runs the x64 installer
+  # under emulation, so nothing is lost by shipping one architecture.
   target:
     - target: nsis
-      arch: [x64, arm64]
+      arch: [x64]
   artifactName: ${productName}-${version}-${arch}.${ext}
 
 nsis:

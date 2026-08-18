@@ -30,6 +30,15 @@ export default defineConfig({
   },
   renderer: {
     resolve: { alias },
+    server: {
+      // The window is served from `relay://renderer/` so Clerk sees one stable, secure
+      // origin in development and production alike. Vite otherwise derives its HMR
+      // WebSocket url from `location`, and `ws://renderer/` does not resolve — so name
+      // the dev server the relay protocol is proxying to. Vite's client still probes the
+      // page-relative url first and logs one failed WebSocket before taking this route;
+      // that notice is expected, and HMR works from the fallback connection.
+      hmr: { protocol: "ws", host: "localhost", port: 5173 },
+    },
     plugins: [
       tanstackRouter({
         target: "react",
