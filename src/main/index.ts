@@ -261,7 +261,13 @@ function watchPackagedSmokeTest(mainWindow: BrowserWindow) {
   }, SMOKE_TEST_TIMEOUT_MS);
 
   mainWindow.webContents.once("did-finish-load", () => {
-    finish(0, "Packaged runtime smoke test passed: renderer loaded from the relay protocol.");
+    void waitForRendererToMount(mainWindow).then((mounted) => {
+      if (mounted) {
+        finish(0, "Packaged runtime smoke test passed: renderer mounted from the relay protocol.");
+      } else {
+        finish(1, "Packaged runtime smoke test loaded the document but the renderer never mounted.");
+      }
+    });
   });
   mainWindow.webContents.once("did-fail-load", (_event, errorCode, errorDescription) => {
     finish(
@@ -275,4 +281,22 @@ function watchPackagedSmokeTest(mainWindow: BrowserWindow) {
       `Packaged runtime smoke test lost the renderer process: ${details.reason}.`,
     );
   });
+}
+
+/**
+ * `did-finish-load` only means the document arrived. A renderer bundle that throws while
+ * importing — a missing build-time variable, a chunk that never made it into `app.asar` —
+ * still fires it and leaves an empty page. React renders a "connecting" state immediately,
+ * so a populated root is the cheapest proof the bundle actually executed. Network calls are
+ * expected to fail on a build agent, so this deliberately does not wait for sign-in.
+ */
+async function waitForRendererToMount(mainWindow: BrowserWindow) {
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    const childCount: unknown = await mainWindow.webContents.executeJavaScript(
+      'document.getElementById("app")?.childElementCount ?? 0',
+    );
+    if (typeof childCount === "number" && childCount > 0) return true;
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  }
+  return false;
 }

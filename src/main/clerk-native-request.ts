@@ -22,6 +22,12 @@ const NATIVE_TRANSPORT_MARKER = "_is_native";
 const EXPOSED_RESPONSE_HEADERS = "Authorization, Clerk-Db-Jwt, *";
 const ALLOWED_REQUEST_HEADERS = "Authorization, *";
 const ALLOWED_METHODS = "GET, POST, PATCH, PUT, DELETE, OPTIONS";
+/**
+ * The `Authorization` request header is not safelisted, so every authenticated Clerk call
+ * is preceded by a preflight. Letting Chromium cache the result keeps that to one extra
+ * round trip per ten minutes rather than one per request.
+ */
+const PREFLIGHT_CACHE_SECONDS = "600";
 
 function findHeaderName(headers: object, expectedName: string) {
   const normalizedExpectedName = expectedName.toLowerCase();
@@ -105,5 +111,6 @@ export function withRendererCorsForNativeClerkResponse(
     "Access-Control-Allow-Headers": [ALLOWED_REQUEST_HEADERS],
     "Access-Control-Allow-Methods": [ALLOWED_METHODS],
     "Access-Control-Expose-Headers": [EXPOSED_RESPONSE_HEADERS],
+    "Access-Control-Max-Age": [PREFLIGHT_CACHE_SECONDS],
   };
 }

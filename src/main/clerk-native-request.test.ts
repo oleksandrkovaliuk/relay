@@ -136,6 +136,7 @@ describe("withRendererCorsForNativeClerkResponse", () => {
       "Access-Control-Allow-Headers": ["Authorization, *"],
       "Access-Control-Allow-Methods": ["GET, POST, PATCH, PUT, DELETE, OPTIONS"],
       "Access-Control-Expose-Headers": ["Authorization, Clerk-Db-Jwt, *"],
+      "Access-Control-Max-Age": ["600"],
     });
   });
 
