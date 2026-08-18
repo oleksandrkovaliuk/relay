@@ -15,7 +15,13 @@ import {
   FieldTitle,
 } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
-import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { StudentMultiPicker } from "@/homework/assignment/student-multi-picker";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Switch } from "@/components/ui/switch";
@@ -35,6 +41,12 @@ import { ActivityTypePicker } from "./activity-type-picker";
 import { BuilderPreview } from "./builder-preview";
 
 type Difficulty = "beginner" | "intermediate" | "advanced";
+
+const DIFFICULTY_LABELS: Record<Difficulty, string> = {
+  beginner: "Beginner",
+  intermediate: "Intermediate",
+  advanced: "Advanced",
+};
 
 type BuilderBriefSnapshot = {
   studentIds: Id<"students">[];
@@ -288,16 +300,19 @@ export function HomeworkBuilder({
               <FieldLabel htmlFor="builder-difficulty" className="sr-only">
                 Difficulty
               </FieldLabel>
-              <NativeSelect
-                id="builder-difficulty"
+              <Select
                 value={difficulty}
-                onChange={(event) => setDifficulty(event.target.value as Difficulty)}
-                className="sm:max-w-xs"
+                onValueChange={(value) => setDifficulty(value as Difficulty)}
               >
-                <NativeSelectOption value="beginner">Beginner</NativeSelectOption>
-                <NativeSelectOption value="intermediate">Intermediate</NativeSelectOption>
-                <NativeSelectOption value="advanced">Advanced</NativeSelectOption>
-              </NativeSelect>
+                <SelectTrigger id="builder-difficulty" className="w-full sm:w-64">
+                  <SelectValue>{DIFFICULTY_LABELS[difficulty]}</SelectValue>
+                </SelectTrigger>
+                <SelectContent align="start">
+                  <SelectItem value="beginner">Beginner</SelectItem>
+                  <SelectItem value="intermediate">Intermediate</SelectItem>
+                  <SelectItem value="advanced">Advanced</SelectItem>
+                </SelectContent>
+              </Select>
             </Field>
           </BriefRow>
 
