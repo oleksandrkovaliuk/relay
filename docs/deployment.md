@@ -65,14 +65,14 @@ These are launch blockers, not polish:
 ## Sign-in domains: who hosts what
 
 Nothing about authentication is a site you deploy. Clerk hosts the authentication
-surfaces; the desktop app only listens briefly on loopback for the browser result.
+surfaces; the desktop app receives the browser result through its registered protocol.
 
 | Surface | Hosted by | Development | Production |
 | --- | --- | --- | --- |
 | Clerk Frontend API — the JWT issuer Convex verifies | **Clerk** | `https://next-boa-5954.clerk.accounts.dev` | `https://clerk.<your-domain>` |
 | Clerk sign-in and account portal | **Clerk** | Clerk development hosts | `https://accounts.<your-domain>` |
 | Google's callback into Clerk | **Clerk** | `https://next-boa-5954.clerk.accounts.dev/v1/oauth_callback` | `https://clerk.<your-domain>/v1/oauth_callback` |
-| The desktop app's own redirect | **the app**, on loopback | `http://127.0.0.1:42819/oauth/callback` | identical |
+| The desktop app's own redirect | **the app**, through its registered protocol | `relay://renderer/` | identical |
 | Student player | **Convex static hosting** | `http://localhost:5180` | `https://<prod-deployment>.convex.site` |
 
 `/v1/oauth_callback` is Clerk's endpoint on Clerk's servers. You never build or
@@ -157,8 +157,8 @@ OAuth Application; that feature is for letting third-party applications request
 scoped access to Relay accounts.
 
 - Clerk → *Native applications*: enable the Native API and add
-  `http://127.0.0.1:42819/oauth/callback` to the SSO redirect allowlist. The
-  desktop app serves it only while sign-in is open.
+  `relay://renderer/` to the SSO redirect allowlist. The Clerk Electron bridge
+  routes that callback back to the running desktop app.
 - Clerk → *Integrations* → *Convex*: activate the integration. This configures
   Clerk session tokens with the `aud: "convex"` claim Convex expects.
 - Clerk → *Settings* → *Branding*: keep **Remove "Secured by Clerk" branding**
@@ -193,7 +193,7 @@ not repository secrets. Keep Google OAuth client secrets, Convex deploy keys,
 and code-signing credentials in GitHub **Actions secrets**.
 
 **8. Verify.** Launch the packaged app: sign-in must open the production Clerk and
-Google flow, return through the loopback callback, and load the workspace from the
+Google flow, return through the `relay://renderer/` callback, and load the workspace from the
 production Convex deployment.
 
 ### What changes for existing sign-ins
@@ -215,7 +215,7 @@ re-keying before the switch rather than after.
 - [ ] Signed/notarized desktop app launches on a clean Mac without developer tools.
 - [ ] `VITE_PLAYER_ORIGIN` points to the production player.
 - [ ] A production Clerk instance exists, its DNS records verify, and Native
-      applications allowlists `http://127.0.0.1:42819/oauth/callback`.
+      applications allowlists `relay://renderer/`.
 - [ ] Clerk's Convex integration is active and the session audience is `convex`.
 - [ ] Clerk's **Remove "Secured by Clerk" branding** option is off.
 - [ ] `VITE_CLERK_PUBLISHABLE_KEY` is the production `pk_live_...` key in the

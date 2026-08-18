@@ -1,4 +1,4 @@
-import { useClerk, useUser } from "@clerk/react";
+import { useClerk, useUser } from "@clerk/electron/react";
 
 import { Button } from "@/components/ui/button";
 

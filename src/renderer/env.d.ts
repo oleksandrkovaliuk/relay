@@ -1,12 +1,10 @@
 /// <reference types="vite/client" />
 
 import type { TeacherDesktopApi } from "@/shared/claude";
-import type { RelayAuthDesktopApi } from "@/shared/relay-auth";
 
 declare global {
   interface Window {
     desktop?: TeacherDesktopApi;
-    relayAuth?: RelayAuthDesktopApi;
   }
 }
 

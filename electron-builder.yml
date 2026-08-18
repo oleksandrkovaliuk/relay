@@ -2,6 +2,10 @@ appId: com.oleksandrkovaliuk.relay
 productName: Relay
 copyright: © ${author}
 
+protocols:
+  - name: Relay
+    schemes: [relay]
+
 # No native modules to rebuild, and the rebuild step shells out to `pnpm install`,
 # which fails on pnpm's ignored-build-scripts warning.
 npmRebuild: false

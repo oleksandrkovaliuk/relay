@@ -1,4 +1,4 @@
-import { useUser } from "@clerk/react";
+import { useUser } from "@clerk/electron/react";
 import { Outlet, useRouterState } from "@tanstack/react-router";
 import { useQuery } from "convex-helpers/react/cache";
 import { useEffect, useState } from "react";
