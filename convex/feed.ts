@@ -1,14 +1,15 @@
 import { v } from "convex/values";
 
 import { query } from "./_generated/server";
+import { requireCurrentUser } from "./auth";
 import { aiSummaryValidator } from "./content";
 import { loadSubmissionDetail } from "./submissionLib";
 import { loadSubmissionFeedback, submissionFeedbackValueValidator } from "./feedback";
+import { MAX_QUESTIONS } from "./limits";
 
 const MAX_FEED_ITEMS = 50;
 /** The homework page only needs the handful a teacher could actually act on. */
 const MAX_IN_PROGRESS_ITEMS = 8;
-const MAX_QUESTIONS = 40;
 const STRUGGLE_ACCURACY_THRESHOLD = 0.5;
 
 const feedItemValidator = v.object({
@@ -36,7 +37,12 @@ export const inbox = query({
   args: {},
   returns: v.array(feedItemValidator),
   handler: async (ctx) => {
-    const submissions = await ctx.db.query("submissions").order("desc").take(MAX_FEED_ITEMS);
+    const user = await requireCurrentUser(ctx);
+    const submissions = await ctx.db
+      .query("submissions")
+      .withIndex("by_ownerId_and_startedAt", (query) => query.eq("ownerId", user._id))
+      .order("desc")
+      .take(MAX_FEED_ITEMS);
     return Promise.all(
       submissions.map(async (submission) => {
         const assignment = await ctx.db.get("assignments", submission.assignmentId);
@@ -114,9 +120,12 @@ export const inProgress = query({
     }),
   ),
   handler: async (ctx) => {
+    const user = await requireCurrentUser(ctx);
     const submissions = await ctx.db
       .query("submissions")
-      .withIndex("by_status_and_submittedAt", (q) => q.eq("status", "in_progress"))
+      .withIndex("by_ownerId_and_status_and_submittedAt", (q) =>
+        q.eq("ownerId", user._id).eq("status", "in_progress"),
+      )
       .order("desc")
       .take(MAX_IN_PROGRESS_ITEMS);
 
@@ -159,9 +168,12 @@ export const awaitingSummary = query({
     }),
   ),
   handler: async (ctx) => {
+    const user = await requireCurrentUser(ctx);
     const submissions = await ctx.db
       .query("submissions")
-      .withIndex("by_status_and_submittedAt", (q) => q.eq("status", "submitted"))
+      .withIndex("by_ownerId_and_status_and_submittedAt", (q) =>
+        q.eq("ownerId", user._id).eq("status", "submitted"),
+      )
       .order("desc")
       .take(MAX_FEED_ITEMS);
     const missing = submissions.filter((submission) => !submission.aiSummary).slice(0, 5);
@@ -177,6 +189,29 @@ export const awaitingSummary = query({
     );
   },
 });
+
+/** As much evidence as is worth putting in one summary request. */
+const MAX_SUMMARY_QUESTIONS = 60;
+
+/**
+ * A worksheet can now hold a hundred activities, and a summary of all of them is
+ * both slower and worse than a summary of the ones that went wrong. Everything
+ * the student did not get plainly right is kept, in order, and the correct ones
+ * fill whatever room is left — a set answered perfectly still reads as one.
+ */
+function selectSummaryEvidence<
+  Answer extends { correctness?: string; order: number },
+>(answers: Answer[]) {
+  if (answers.length <= MAX_SUMMARY_QUESTIONS) return answers;
+  const informative = answers.filter((answer) => answer.correctness !== "correct");
+  const remainingRoom = Math.max(0, MAX_SUMMARY_QUESTIONS - informative.length);
+  const correct = answers
+    .filter((answer) => answer.correctness === "correct")
+    .slice(0, remainingRoom);
+  return [...informative.slice(0, MAX_SUMMARY_QUESTIONS), ...correct].toSorted(
+    (left, right) => left.order - right.order,
+  );
+}
 
 export const summaryInput = query({
   args: { submissionId: v.id("submissions") },
@@ -203,7 +238,8 @@ export const summaryInput = query({
     v.null(),
   ),
   handler: async (ctx, args) => {
-    const detail = await loadSubmissionDetail(ctx, args.submissionId);
+    const user = await requireCurrentUser(ctx);
+    const detail = await loadSubmissionDetail(ctx, args.submissionId, user._id);
     if (!detail) return null;
     return {
       studentName: detail.studentName,
@@ -214,7 +250,7 @@ export const summaryInput = query({
           : Math.round(((detail.score ?? 0) / detail.maxAutoScore) * 100),
       activeMinutes: Math.round(detail.activeMs / 60_000),
       lookupCount: detail.lookupCount,
-      questions: detail.answers.map((answer) => ({
+      questions: selectSummaryEvidence(detail.answers).map((answer) => ({
         prompt: answer.prompt,
         skillTags: answer.skillTags,
         correctness: answer.correctness ?? "unanswered",
@@ -234,7 +270,12 @@ export const skillPressure = query({
     v.object({ skill: v.string(), accuracy: v.number(), attempts: v.number() }),
   ),
   handler: async (ctx) => {
-    const answers = await ctx.db.query("answers").order("desc").take(500);
+    const user = await requireCurrentUser(ctx);
+    const answers = await ctx.db
+      .query("answers")
+      .withIndex("by_ownerId", (query) => query.eq("ownerId", user._id))
+      .order("desc")
+      .take(500);
     const totals = new Map<string, { correct: number; attempts: number }>();
     for (const answer of answers) {
       if (!answer.correctness || answer.correctness === "pending_review") continue;

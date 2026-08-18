@@ -1,3 +1,4 @@
+import { useUser } from "@clerk/react";
 import { Outlet, useRouterState } from "@tanstack/react-router";
 import { useQuery } from "convex-helpers/react/cache";
 import { useEffect, useState } from "react";
@@ -10,7 +11,6 @@ import {
 import { ClaudeSetupDialog } from "@/claude/claude-setup-dialog";
 import { GenerationRunsProvider } from "@/claude/generation-runs";
 import { useAutomaticSummaries } from "@/claude/use-automatic-summaries";
-import { useClaudeConnections } from "@/claude/use-claude-connections";
 import { rememberLastRoute } from "@/lib/last-route";
 import { WorkspaceShell } from "./workspace-shell";
 
@@ -35,7 +35,7 @@ export function WorkspaceLayout() {
 function WorkspaceChrome() {
   const { availability, refresh } = useSharedClaudeAvailability();
   const [claudeSetup, setClaudeSetup] = useState(readClaudeSetupState);
-  const { activeConnection } = useClaudeConnections();
+  const { user } = useUser();
   // Summaries are generated the moment work arrives, so the teacher never waits
   // for one they are already looking at.
   useAutomaticSummaries({ isClaudeReady: availability?.isAuthenticated ?? false });
@@ -60,11 +60,16 @@ function WorkspaceChrome() {
     <>
       <WorkspaceShell
         availability={availability}
-        /* The signed-in email is the identity a teacher recognises; the
-           connection's own label is only a fallback for a login that has not
-           reported one yet. */
-        accountName={
-          activeConnection?.account?.email ?? activeConnection?.label ?? "Claude Code"
+        /* Who the workspace belongs to. The Claude login is not that: it is a
+           tool this teacher happens to run, and the rail reports it as status. */
+        teacher={
+          user
+            ? {
+                name: user.fullName,
+                email: user.primaryEmailAddress?.emailAddress ?? null,
+                imageUrl: user.imageUrl,
+              }
+            : null
         }
         awaitingSummaryCount={awaitingSummary?.length ?? 0}
         draftsReadyCount={drafts?.length ?? 0}

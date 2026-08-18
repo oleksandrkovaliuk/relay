@@ -11,15 +11,19 @@
 import type * as admin from "../admin.js";
 import type * as aiJobs from "../aiJobs.js";
 import type * as assignments from "../assignments.js";
+import type * as auth from "../auth.js";
 import type * as content from "../content.js";
 import type * as dashboard from "../dashboard.js";
+import type * as deletion from "../deletion.js";
 import type * as feed from "../feed.js";
 import type * as feedback from "../feedback.js";
+import type * as limits from "../limits.js";
 import type * as seed from "../seed.js";
 import type * as students from "../students.js";
 import type * as submissionLib from "../submissionLib.js";
 import type * as submissions from "../submissions.js";
 import type * as teaching from "../teaching.js";
+import type * as users from "../users.js";
 
 import type {
   ApiFromModules,
@@ -31,15 +35,19 @@ declare const fullApi: ApiFromModules<{
   admin: typeof admin;
   aiJobs: typeof aiJobs;
   assignments: typeof assignments;
+  auth: typeof auth;
   content: typeof content;
   dashboard: typeof dashboard;
+  deletion: typeof deletion;
   feed: typeof feed;
   feedback: typeof feedback;
+  limits: typeof limits;
   seed: typeof seed;
   students: typeof students;
   submissionLib: typeof submissionLib;
   submissions: typeof submissions;
   teaching: typeof teaching;
+  users: typeof users;
 }>;
 
 /**

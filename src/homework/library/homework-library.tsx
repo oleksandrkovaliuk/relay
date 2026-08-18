@@ -41,6 +41,9 @@ import { HomeworkGlyph } from "@/homework/homework-glyph";
 import { initials } from "@/lib/utils";
 import { InProgressHomework } from "./in-progress-homework";
 
+/** Deleting is paged; this is the ceiling on how many pages to walk. */
+const MAXIMUM_DELETE_PASSES = 40;
+
 type HomeworkFilter = "all" | "published" | "drafts" | "closed";
 type PublishedAssignment = NonNullable<
   ReturnType<typeof useQuery<typeof api.assignments.listPublished>>
@@ -59,16 +62,23 @@ export function HomeworkLibrary({
   const assignments = useQuery(api.assignments.listPublished);
   const drafts = useQuery(api.assignments.listDrafts);
   const closeAssignment = useMutation(api.assignments.close);
-  const discardDraft = useMutation(api.assignments.discardDraft);
+  const removeHomework = useMutation(api.assignments.remove);
+  const reopenAssignment = useMutation(api.assignments.reopen);
   const [filter, setFilter] = useState<HomeworkFilter>("all");
   const [copiedToken, setCopiedToken] = useState<string | null>(null);
   const [copyFailureToken, setCopyFailureToken] = useState<string | null>(null);
   const [copyAnnouncement, setCopyAnnouncement] = useState("");
   const [assignmentToClose, setAssignmentToClose] = useState<PublishedAssignment | null>(null);
-  const [draftToDiscard, setDraftToDiscard] = useState<HomeworkDraft | null>(null);
+  /** Either kind of homework, reduced to what the confirmation needs to say. */
+  const [homeworkToDelete, setHomeworkToDelete] = useState<{
+    homeworkDraftId: Id<"homeworkDrafts">;
+    title: string;
+    isPublished: boolean;
+  } | null>(null);
   const [isClosing, setIsClosing] = useState(false);
-  const [isDiscarding, setIsDiscarding] = useState(false);
-  const [discardError, setDiscardError] = useState<string | null>(null);
+  const [isReopening, setIsReopening] = useState<Id<"assignments"> | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   if (assignments === undefined || drafts === undefined) {
     return <LoadingState />;
@@ -77,13 +87,27 @@ export function HomeworkLibrary({
   const publishedAssignments = assignments.filter((assignment) => assignment.status === "published");
   const closedAssignments = assignments.filter((assignment) => assignment.status === "closed");
   const visibleDrafts = filter === "all" || filter === "drafts" ? drafts : [];
-  const visibleAssignments = assignments.filter((assignment) => {
-    if (filter === "all") return true;
-    if (filter === "published") return assignment.status === "published";
-    if (filter === "closed") return assignment.status === "closed";
-    return false;
-  });
-  const hasVisibleHomework = visibleDrafts.length > 0 || visibleAssignments.length > 0;
+  /**
+   * Open and closed homework are different states of the teacher's day, not one
+   * list with a badge: a closed set takes no more answers, and the only things
+   * to do with it are reopen it or delete it.
+   */
+  const assignmentGroups = [
+    {
+      key: "published" as const,
+      title: "Published",
+      description: "Live for students on their link.",
+      items: filter === "all" || filter === "published" ? publishedAssignments : [],
+    },
+    {
+      key: "closed" as const,
+      title: "Closed",
+      description: "The link no longer opens. Reopen it, or delete it for good.",
+      items: filter === "all" || filter === "closed" ? closedAssignments : [],
+    },
+  ];
+  const hasVisibleHomework =
+    visibleDrafts.length > 0 || assignmentGroups.some((group) => group.items.length > 0);
 
   async function closeSelectedAssignment() {
     if (!assignmentToClose) return;
@@ -96,17 +120,40 @@ export function HomeworkLibrary({
     }
   }
 
-  async function discardSelectedDraft() {
-    if (!draftToDiscard) return;
-    setIsDiscarding(true);
-    setDiscardError(null);
+  async function reopenStudentAccess(assignmentId: Id<"assignments">) {
+    setIsReopening(assignmentId);
     try {
-      await discardDraft({ homeworkDraftId: draftToDiscard._id });
-      setDraftToDiscard(null);
-    } catch (caught) {
-      setDiscardError(caught instanceof Error ? caught.message : "Could not clear this draft.");
+      await reopenAssignment({ assignmentId });
     } finally {
-      setIsDiscarding(false);
+      setIsReopening(null);
+    }
+  }
+
+  async function deleteSelectedHomework() {
+    if (!homeworkToDelete) return;
+    setIsDeleting(true);
+    setDeleteError(null);
+    try {
+      /**
+       * Deleting is bounded per call so one transaction never has to carry a
+       * whole class's history; it is repeated until the backend says it is done.
+       */
+      for (let attempt = 0; attempt < MAXIMUM_DELETE_PASSES; attempt += 1) {
+        const result = await removeHomework({
+          homeworkDraftId: homeworkToDelete.homeworkDraftId,
+        });
+        if (result.isComplete) {
+          setHomeworkToDelete(null);
+          return;
+        }
+      }
+      setDeleteError("This homework has more history than one delete could clear. Try again.");
+    } catch (caught) {
+      setDeleteError(
+        caught instanceof Error ? caught.message : "Could not delete this homework.",
+      );
+    } finally {
+      setIsDeleting(false);
     }
   }
 
@@ -207,16 +254,20 @@ export function HomeworkLibrary({
                   </p>
                 </div>
                 <Button
-                  variant="ghost"
+                  variant="destructiveGhost"
                   size="sm"
                   className="relative z-10 shrink-0 opacity-0 transition-opacity duration-150 focus-visible:opacity-100 group-hover/row:opacity-100"
                   onClick={() => {
-                    setDiscardError(null);
-                    setDraftToDiscard(draft);
+                    setDeleteError(null);
+                    setHomeworkToDelete({
+                      homeworkDraftId: draft._id,
+                      title: draft.title,
+                      isPublished: false,
+                    });
                   }}
                 >
                   <HugeiconsIcon icon={Delete02Icon} size={14} strokeWidth={2} aria-hidden />
-                  <span className="sr-only sm:not-sr-only">Clear</span>
+                  <span className="sr-only sm:not-sr-only">Delete</span>
                 </Button>
                 <span className="relative z-0 shrink-0 text-[12.5px] font-medium text-primary">
                   Review
@@ -227,11 +278,20 @@ export function HomeworkLibrary({
         </section>
       ) : null}
 
-      {visibleAssignments.length > 0 ? (
-        <section className="grid gap-3">
-          <SectionHeading title={filter === "closed" ? "Closed" : "Published"} />
+      {assignmentGroups.map((group) =>
+        group.items.length === 0 ? null : (
+        <section key={group.key} className="grid gap-3">
+          <SectionHeading
+            title={group.title}
+            description={group.description}
+            action={
+              <span className="text-[13px] text-muted-foreground numeric">
+                {group.items.length}
+              </span>
+            }
+          />
           <div className="panel divide-y divide-border/70 overflow-hidden">
-            {visibleAssignments.map((assignment) => {
+            {group.items.map((assignment) => {
               const shareUrl = buildShareUrl(assignment.shareToken);
               const isPublished = assignment.status === "published";
               return (
@@ -277,7 +337,33 @@ export function HomeworkLibrary({
                         <Button variant="ghost" size="sm" onClick={() => setAssignmentToClose(assignment)}>
                           Close
                         </Button>
-                      ) : null}
+                      ) : (
+                        /* A closed set is not a dead end: the same link works
+                           again the moment access is put back. */
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          disabled={isReopening === assignment._id}
+                          onClick={() => void reopenStudentAccess(assignment._id)}
+                        >
+                          {isReopening === assignment._id ? "Reopening…" : "Reopen"}
+                        </Button>
+                      )}
+                      <Button
+                        variant="destructiveGhost"
+                        size="sm"
+                        onClick={() => {
+                          setDeleteError(null);
+                          setHomeworkToDelete({
+                            homeworkDraftId: assignment.homeworkDraftId,
+                            title: assignment.title,
+                            isPublished: true,
+                          });
+                        }}
+                      >
+                        <HugeiconsIcon icon={Delete02Icon} size={14} strokeWidth={2} aria-hidden />
+                        <span className="sr-only">Delete homework</span>
+                      </Button>
                       <Button
                         variant="outline"
                         size="sm"
@@ -307,7 +393,8 @@ export function HomeworkLibrary({
             })}
           </div>
         </section>
-      ) : null}
+        ),
+      )}
 
       <AlertDialog
         open={assignmentToClose !== null}
@@ -337,35 +424,38 @@ export function HomeworkLibrary({
       </AlertDialog>
 
       <AlertDialog
-        open={draftToDiscard !== null}
+        open={homeworkToDelete !== null}
         onOpenChange={(isOpen) => {
-          if (!isOpen && !isDiscarding) {
-            setDraftToDiscard(null);
-            setDiscardError(null);
+          if (!isOpen && !isDeleting) {
+            setHomeworkToDelete(null);
+            setDeleteError(null);
           }
         }}
       >
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Clear this draft?</AlertDialogTitle>
+            <AlertDialogTitle>Delete this homework?</AlertDialogTitle>
             <AlertDialogDescription>
-              “{draftToDiscard?.title}” and all of its generated activities will be permanently
-              removed.
+              &ldquo;{homeworkToDelete?.title}&rdquo; and all of its activities are removed for
+              good.
+              {homeworkToDelete?.isPublished
+                ? " The student link stops working, and every attempt at it — answers, scores and ratings — is deleted with it."
+                : ""}
             </AlertDialogDescription>
           </AlertDialogHeader>
-          {discardError ? (
+          {deleteError ? (
             <p role="alert" className="text-[12.5px] leading-5 text-destructive">
-              {discardError}
+              {deleteError}
             </p>
           ) : null}
           <AlertDialogFooter>
-            <AlertDialogCancel disabled={isDiscarding}>Keep draft</AlertDialogCancel>
+            <AlertDialogCancel disabled={isDeleting}>Keep it</AlertDialogCancel>
             <AlertDialogAction
               variant="danger"
-              disabled={isDiscarding}
-              onClick={() => void discardSelectedDraft()}
+              disabled={isDeleting}
+              onClick={() => void deleteSelectedHomework()}
             >
-              {isDiscarding ? "Clearing…" : "Clear draft"}
+              {isDeleting ? "Deleting…" : "Delete homework"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

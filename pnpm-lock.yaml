@@ -14,9 +14,12 @@ importers:
       '@base-ui/react':
         specifier: ^1.7.0
         version: 1.7.0(@date-fns/tz@1.5.0)(@types/react@19.2.18)(date-fns@4.4.0)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
+      '@clerk/react':
+        specifier: ^6.14.3
+        version: 6.14.3(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
       '@convex-dev/static-hosting':
         specifier: ^0.2.1
-        version: 0.2.1(convex@1.43.0(react@19.2.8))(react@19.2.8)
+        version: 0.2.1(convex@1.43.0(@clerk/react@6.14.3(react-dom@19.2.8(react@19.2.8))(react@19.2.8))(react@19.2.8))(react@19.2.8)
       '@fontsource-variable/inter':
         specifier: ^5.3.0
         version: 5.3.0
@@ -61,10 +64,10 @@ importers:
         version: 1.1.1(@types/react-dom@19.2.4(@types/react@19.2.18))(@types/react@19.2.18)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
       convex:
         specifier: ^1.43.0
-        version: 1.43.0(react@19.2.8)
+        version: 1.43.0(@clerk/react@6.14.3(react-dom@19.2.8(react@19.2.8))(react@19.2.8))(react@19.2.8)
       convex-helpers:
         specifier: ^0.1.122
-        version: 0.1.122(@standard-schema/spec@1.1.0)(convex@1.43.0(react@19.2.8))(hono@4.13.1)(react@19.2.8)(typescript@6.0.3)(zod@4.4.3)
+        version: 0.1.122(@standard-schema/spec@1.1.0)(convex@1.43.0(@clerk/react@6.14.3(react-dom@19.2.8(react@19.2.8))(react@19.2.8))(react@19.2.8))(hono@4.13.1)(react@19.2.8)(typescript@6.0.3)(zod@4.4.3)
       date-fns:
         specifier: ^4.4.0
         version: 4.4.0
@@ -124,7 +127,7 @@ importers:
         specifier: ^1.168.29
         version: 1.168.29(@tanstack/react-router@1.170.25(react-dom@19.2.8(react@19.2.8))(react@19.2.8))(esbuild@0.27.0)(rolldown@1.2.3)(vite@8.2.1(@types/node@24.13.3)(esbuild@0.27.0)(jiti@2.7.0))
       '@types/node':
-        specifier: ^24.10.2
+        specifier: ^24.13.3
         version: 24.13.3
       '@types/react':
         specifier: ^19.2.14
@@ -137,7 +140,7 @@ importers:
         version: 6.0.5(vite@8.2.1(@types/node@24.13.3)(esbuild@0.27.0)(jiti@2.7.0))
       convex-test:
         specifier: ^0.0.55
-        version: 0.0.55(convex@1.43.0(react@19.2.8))
+        version: 0.0.55(convex@1.43.0(@clerk/react@6.14.3(react-dom@19.2.8(react@19.2.8))(react@19.2.8))(react@19.2.8))
       electron:
         specifier: ^43.3.0
         version: 43.3.0
@@ -443,6 +446,25 @@ packages:
 
   '@changesets/write@0.4.0':
     resolution: {integrity: sha512-CdTLvIOPiCNuH71pyDu3rA+Q0n65cmAbXnwWH84rKGiFumFzkmHNT8KHTMEchcxN+Kl8I54xGUhJ7l3E7X396Q==}
+
+  '@clerk/react@6.14.3':
+    resolution: {integrity: sha512-PUmE01DwI28w7gn2XttaIrKvdjCTB8MtRRNlbozdtFUcRc1rs4jGBpTbuvL67F5ZBNHMwnNENmSU3IRVtIS9AA==}
+    engines: {node: '>=20.9.0'}
+    peerDependencies:
+      react: ^18.0.0 || ~19.0.3 || ~19.1.4 || ~19.2.3 || ~19.3.0-0
+      react-dom: ^18.0.0 || ~19.0.3 || ~19.1.4 || ~19.2.3 || ~19.3.0-0
+
+  '@clerk/shared@4.29.1':
+    resolution: {integrity: sha512-vl53gfMKHGhOskQgYfz7Qdkw0E/TYMCRuBkKRibi+8/Mz0JvR1yyVKA9k/w9CRvGfGLL9m/4/YDr1IlUJjx8ag==}
+    engines: {node: '>=20.9.0'}
+    peerDependencies:
+      react: ^18.0.0 || ~19.0.3 || ~19.1.4 || ~19.2.3 || ~19.3.0-0
+      react-dom: ^18.0.0 || ~19.0.3 || ~19.1.4 || ~19.2.3 || ~19.3.0-0
+    peerDependenciesMeta:
+      react:
+        optional: true
+      react-dom:
+        optional: true
 
   '@convex-dev/static-hosting@0.2.1':
     resolution: {integrity: sha512-QMcfKUOB8dHeLa81xzk2GEIn7LzhEvtdgYhfFpIFer6uE/+xMStDxHAZsX5h1qsttYi7wNbEKAMf7MfOQ7ZrMw==}
@@ -1528,6 +1550,9 @@ packages:
     resolution: {integrity: sha512-DR9t6lfLVdrjgCwpglrR9DR7Ok8/HlXjcOE+goWXF3zyuLUO/ug7vMbSFxTqrQTtbRghJfyhmIZ0S6LhPIy44w==}
     engines: {node: '>=20.19'}
 
+  '@tanstack/query-core@5.101.4':
+    resolution: {integrity: sha512-gNwcvOJcRbLWPOLG/2OBm+zM+Yv+MKsXKEOWC57USuZDEsI71hEErQsiEGx5wX9rzWWkfwM0fVSPoiIFSsxfiw==}
+
   '@tanstack/react-router@1.170.25':
     resolution: {integrity: sha512-XiWYvkLAGhcZHhV2xUvicpF/VfTVSnewP6CqviDONAjmD50tBob5x/93u2W8QZAc/JgkPd+jijCmu6t4NCzmew==}
     engines: {node: '>=20.19'}
@@ -1719,6 +1744,7 @@ packages:
   '@xmldom/xmldom@0.8.13':
     resolution: {integrity: sha512-KRYzxepc14G/CEpEGc3Yn+JKaAeT63smlDr+vjB8jRfgTBBI9wRj/nkQEO+ucV8p8I9bfKLWp37uHgFrbntPvw==}
     engines: {node: '>=10.0.0'}
+    deprecated: this version has critical issues, please update to the latest version
 
   abbrev@4.0.0:
     resolution: {integrity: sha512-a1wflyaL0tHtJSmLSOVybYhy22vRih4eduhhrkcjgrWGnRfrZtovJ2FRjxuTtkkj47O/baf0R86QU5OuYpz8fA==}
@@ -2248,6 +2274,10 @@ packages:
     resolution: {integrity: sha512-g7nH6P6dyDioJogAAGprGpCtVImJhpPk/roCzdb3fIh61/s/nPsfR6onyMwkCAR/OlC3yBC0lESvUoQEAssIrw==}
     engines: {node: '>= 0.8'}
 
+  dequal@2.0.3:
+    resolution: {integrity: sha512-0je+qPKHEMohvfRTCEo3CrPG6cAzAYgmzKyxRiYSSDkS6eGJdyVJm7WaYA5ECaAD9wLB2T4EEeymA5aFVcYXCA==}
+    engines: {node: '>=6'}
+
   detect-indent@6.1.0:
     resolution: {integrity: sha512-reYkTUJAZb9gUuZ2RvVCNhVHdg62RHnJ7WJl8ftMi4diZ6NWlciOzQN88pUhSELEwflJht4oQDv0F0BMlwaYtA==}
     engines: {node: '>=8'}
@@ -2639,6 +2669,9 @@ packages:
     resolution: {integrity: sha512-AOIgSQCepiJYwP3ARnGx+5VnTu2HBYdzbGP45eLw1vr3zB3vZLeyed1sC9hnbcOc9/SrMyM5RPQrkGz4aS9Zow==}
     engines: {node: '>= 6'}
 
+  glob-to-regexp@0.4.1:
+    resolution: {integrity: sha512-lkX1HJXwyMcprw/5YUZc2s7DrpAiHB21/V+E1rHUrVNokkvB6bqMzT0VfV6/86ZNabt1k14YOIaT7nDvOX3Iiw==}
+
   glob@7.2.3:
     resolution: {integrity: sha512-nFR0zLpU2YCaRxwoCJvL6UvCH2JFyFVIvwTLsIf21AuHlMskA1hhTdk+LlYJtOlYt9v6dvszD2BGRqBL+iQK9Q==}
     deprecated: Old versions of glob are not supported, and contain widely publicized security vulnerabilities, which have been fixed in the current version. Please update. Support for old versions may be purchased (at exorbitant rates) by contacting i@izs.me
@@ -2897,6 +2930,10 @@ packages:
 
   jose@6.2.8:
     resolution: {integrity: sha512-Bsdjwm3Qsd/P0jR+BHDe3LytDfY7WBq2HmCCLIwuVRHMuEC9ae7/R474GIUdF1NgCyZjzVo/A9DOiOBtXq8ZoQ==}
+
+  js-cookie@3.0.7:
+    resolution: {integrity: sha512-z/wZZgDrkNV1eA0ULjM/F9/50Ya8fbzgKneSpoPsXSGd0KnpdtHfOZWK+GcwLk+EZbS4F9RBhU+K2RgzuDaItw==}
+    engines: {node: '>=20'}
 
   js-tokens@4.0.0:
     resolution: {integrity: sha512-RdJUflcE3cUzKiMqQgsCu06FPu9UdIJO0beYbPhHN4k6apgJtifcoCtT9bcxOpYBtpD2kCM6Sbzg4CausW/PKQ==}
@@ -4750,9 +4787,26 @@ snapshots:
       human-id: 4.2.0
       prettier: 2.8.8
 
-  '@convex-dev/static-hosting@0.2.1(convex@1.43.0(react@19.2.8))(react@19.2.8)':
+  '@clerk/react@6.14.3(react-dom@19.2.8(react@19.2.8))(react@19.2.8)':
     dependencies:
-      convex: 1.43.0(react@19.2.8)
+      '@clerk/shared': 4.29.1(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
+      react: 19.2.8
+      react-dom: 19.2.8(react@19.2.8)
+      tslib: 2.8.1
+
+  '@clerk/shared@4.29.1(react-dom@19.2.8(react@19.2.8))(react@19.2.8)':
+    dependencies:
+      '@tanstack/query-core': 5.101.4
+      dequal: 2.0.3
+      glob-to-regexp: 0.4.1
+      js-cookie: 3.0.7
+    optionalDependencies:
+      react: 19.2.8
+      react-dom: 19.2.8(react@19.2.8)
+
+  '@convex-dev/static-hosting@0.2.1(convex@1.43.0(@clerk/react@6.14.3(react-dom@19.2.8(react@19.2.8))(react@19.2.8))(react@19.2.8))(react@19.2.8)':
+    dependencies:
+      convex: 1.43.0(@clerk/react@6.14.3(react-dom@19.2.8(react@19.2.8))(react@19.2.8))(react@19.2.8)
       react: 19.2.8
 
   '@date-fns/tz@1.5.0': {}
@@ -5682,6 +5736,8 @@ snapshots:
 
   '@tanstack/history@1.162.1': {}
 
+  '@tanstack/query-core@5.101.4': {}
+
   '@tanstack/react-router@1.170.25(react-dom@19.2.8(react@19.2.8))(react@19.2.8)':
     dependencies:
       '@tanstack/history': 1.162.1
@@ -6271,9 +6327,9 @@ snapshots:
 
   convert-source-map@2.0.0: {}
 
-  convex-helpers@0.1.122(@standard-schema/spec@1.1.0)(convex@1.43.0(react@19.2.8))(hono@4.13.1)(react@19.2.8)(typescript@6.0.3)(zod@4.4.3):
+  convex-helpers@0.1.122(@standard-schema/spec@1.1.0)(convex@1.43.0(@clerk/react@6.14.3(react-dom@19.2.8(react@19.2.8))(react@19.2.8))(react@19.2.8))(hono@4.13.1)(react@19.2.8)(typescript@6.0.3)(zod@4.4.3):
     dependencies:
-      convex: 1.43.0(react@19.2.8)
+      convex: 1.43.0(@clerk/react@6.14.3(react-dom@19.2.8(react@19.2.8))(react@19.2.8))(react@19.2.8)
     optionalDependencies:
       '@standard-schema/spec': 1.1.0
       hono: 4.13.1
@@ -6281,16 +6337,17 @@ snapshots:
       typescript: 6.0.3
       zod: 4.4.3
 
-  convex-test@0.0.55(convex@1.43.0(react@19.2.8)):
+  convex-test@0.0.55(convex@1.43.0(@clerk/react@6.14.3(react-dom@19.2.8(react@19.2.8))(react@19.2.8))(react@19.2.8)):
     dependencies:
-      convex: 1.43.0(react@19.2.8)
+      convex: 1.43.0(@clerk/react@6.14.3(react-dom@19.2.8(react@19.2.8))(react@19.2.8))(react@19.2.8)
 
-  convex@1.43.0(react@19.2.8):
+  convex@1.43.0(@clerk/react@6.14.3(react-dom@19.2.8(react@19.2.8))(react@19.2.8))(react@19.2.8):
     dependencies:
       esbuild: 0.27.0
       prettier: 3.9.6
       ws: 8.21.0
     optionalDependencies:
+      '@clerk/react': 6.14.3(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
       react: 19.2.8
     transitivePeerDependencies:
       - bufferutil
@@ -6419,6 +6476,8 @@ snapshots:
   delayed-stream@1.0.0: {}
 
   depd@2.0.0: {}
+
+  dequal@2.0.3: {}
 
   detect-indent@6.1.0: {}
 
@@ -6934,6 +6993,8 @@ snapshots:
     dependencies:
       is-glob: 4.0.3
 
+  glob-to-regexp@0.4.1: {}
+
   glob@7.2.3:
     dependencies:
       fs.realpath: 1.0.0
@@ -7156,6 +7217,8 @@ snapshots:
   jiti@2.7.0: {}
 
   jose@6.2.8: {}
+
+  js-cookie@3.0.7: {}
 
   js-tokens@4.0.0: {}
 

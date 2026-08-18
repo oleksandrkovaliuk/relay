@@ -18,7 +18,7 @@ const TONE_STYLES = {
 
 /** The verb for each finding: what the teacher would do about it, in one word. */
 const ACTION_LABELS: Record<InsightHighlight["kind"], string> = {
-  pending_review: "Grade answers",
+  pending_review: "Read answers",
   stalled: "Open the set",
   hesitation: "Review answers",
   slipping: "Review answers",

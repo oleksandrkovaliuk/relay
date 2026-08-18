@@ -33,11 +33,13 @@ const ACTIVITY_KINDS: readonly ClaudeActivityKind[] = [
 ];
 
 /**
- * Everything happening right now, in one place: homework Claude is still
- * writing, and homework a student has open. Both outlast the screen that
- * started them — a generation keeps running in the desktop process, and an
- * unfinished attempt is invisible everywhere else until it is submitted — so
- * this is the section that says the work is alive.
+ * Two different kinds of "in progress", told apart.
+ *
+ * Homework Claude is still writing is the teacher's own unfinished work: it
+ * needs waiting for, or dismissing. Homework a student has open is somebody
+ * else's, mid-attempt, and the only thing to do with it is look. They were one
+ * list, so a run that had stalled and a learner halfway through a worksheet sat
+ * a row apart under the same heading and the same "live" count.
  */
 export function InProgressHomework() {
   const activeJobs = useQuery(api.aiJobs.listActive);
@@ -54,6 +56,7 @@ export function InProgressHomework() {
   const now = useNow(isTimingARun ? ELAPSED_TICK_MILLISECONDS : IDLE_TICK_MILLISECONDS);
 
   if (jobs.length === 0 && attempts.length === 0) return null;
+  const runningJobs = jobs.filter((job) => job.status !== "failed").length;
 
   async function dismiss(aiJobId: Id<"aiJobs">) {
     await finishJob({
@@ -64,13 +67,15 @@ export function InProgressHomework() {
   }
 
   return (
+    <div className="grid gap-8">
+    {jobs.length > 0 ? (
     <section className="status-enter grid gap-3">
       <SectionHeading
-        title="In progress"
-        description="Being written by Claude, or open in front of a student."
+        title="Being written"
+        description="Claude is drafting these. Nothing is shared until you review one."
         action={
           <span className="text-[13px] text-muted-foreground numeric">
-            {jobs.length + attempts.length} live
+            {runningJobs > 0 ? `${runningJobs} running` : `${jobs.length} to clear`}
           </span>
         }
       />
@@ -142,7 +147,22 @@ export function InProgressHomework() {
             </article>
           );
         })}
+      </div>
+    </section>
+    ) : null}
 
+    {attempts.length > 0 ? (
+    <section className="status-enter grid gap-3">
+      <SectionHeading
+        title="With students now"
+        description="Attempts a student has open. You are watching, not editing."
+        action={
+          <span className="text-[13px] text-muted-foreground numeric">
+            {attempts.length} {attempts.length === 1 ? "student" : "students"}
+          </span>
+        }
+      />
+      <div className="panel divide-y divide-border/70 overflow-hidden">
         {attempts.map((attempt) => {
           const currentStep = Math.min(attempt.answeredCount + 1, attempt.questionCount);
           return (
@@ -193,6 +213,8 @@ export function InProgressHomework() {
         })}
       </div>
     </section>
+    ) : null}
+    </div>
   );
 }
 

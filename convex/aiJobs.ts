@@ -2,6 +2,7 @@ import { v } from "convex/values";
 
 import type { Id } from "./_generated/dataModel";
 import { mutation, query, type MutationCtx } from "./_generated/server";
+import { requireCurrentUser, requireOwned } from "./auth";
 import { questionContentValidator } from "./content";
 import {
   aiJobActivityValidator,
@@ -46,18 +47,33 @@ export const createQuestionRewrite = mutation({
   },
   returns: v.id("aiJobs"),
   handler: async (ctx, args) => {
+    const user = await requireCurrentUser(ctx);
+    const draft = requireOwned(
+      await ctx.db.get("homeworkDrafts", args.homeworkDraftId),
+      user._id,
+      "Homework draft not found.",
+    );
+    const question = requireOwned(
+      await ctx.db.get("homeworkQuestions", args.questionId),
+      user._id,
+      "Homework activity not found.",
+    );
+    if (question.homeworkDraftId !== draft._id) throw new Error("Homework activity not found.");
     const existingJob = await ctx.db
       .query("aiJobs")
-      .withIndex("by_requestId", (q) => q.eq("requestId", args.requestId))
+      .withIndex("by_ownerId_and_requestId", (q) =>
+        q.eq("ownerId", user._id).eq("requestId", args.requestId),
+      )
       .unique();
     if (existingJob) return existingJob._id;
 
     // One pending edit per activity: a second request supersedes the first.
-    for (const job of await listRewriteJobsForQuestion(ctx, args.questionId)) {
+    for (const job of await listRewriteJobsForQuestion(ctx, user._id, args.questionId)) {
       await ctx.db.delete("aiJobs", job._id);
     }
 
     return ctx.db.insert("aiJobs", {
+      ownerId: user._id,
       requestId: args.requestId,
       kind: "question_rewrite",
       status: "pending",
@@ -75,8 +91,8 @@ export const completeQuestionRewrite = mutation({
   args: { aiJobId: v.id("aiJobs"), resultSnapshot: v.string() },
   returns: v.null(),
   handler: async (ctx, args) => {
-    const aiJob = await ctx.db.get("aiJobs", args.aiJobId);
-    if (!aiJob) return null;
+    const user = await requireCurrentUser(ctx);
+    requireOwned(await ctx.db.get("aiJobs", args.aiJobId), user._id, "AI job not found.");
     await ctx.db.patch("aiJobs", args.aiJobId, {
       status: "completed",
       completedAt: Date.now(),
@@ -91,8 +107,9 @@ export const dismissJob = mutation({
   args: { aiJobId: v.id("aiJobs") },
   returns: v.null(),
   handler: async (ctx, args) => {
+    const user = await requireCurrentUser(ctx);
     const aiJob = await ctx.db.get("aiJobs", args.aiJobId);
-    if (aiJob) await ctx.db.delete("aiJobs", args.aiJobId);
+    if (aiJob?.ownerId === user._id) await ctx.db.delete("aiJobs", args.aiJobId);
     return null;
   },
 });
@@ -117,7 +134,17 @@ export const listRewrites = query({
   args: { homeworkDraftId: v.id("homeworkDrafts") },
   returns: v.array(rewriteJobValidator),
   handler: async (ctx, args) => {
-    const jobs = await ctx.db.query("aiJobs").order("desc").take(MAX_ACTIVE_JOBS * 4);
+    const user = await requireCurrentUser(ctx);
+    requireOwned(
+      await ctx.db.get("homeworkDrafts", args.homeworkDraftId),
+      user._id,
+      "Homework draft not found.",
+    );
+    const jobs = await ctx.db
+      .query("aiJobs")
+      .withIndex("by_ownerId", (query) => query.eq("ownerId", user._id))
+      .order("desc")
+      .take(MAX_ACTIVE_JOBS * 4);
     return jobs.flatMap((job) => {
       if (job.kind !== "question_rewrite") return [];
       if (job.homeworkDraftId !== args.homeworkDraftId) return [];
@@ -139,9 +166,14 @@ export const listRewrites = query({
 
 async function listRewriteJobsForQuestion(
   ctx: MutationCtx,
+  ownerId: Id<"users">,
   questionId: Id<"homeworkQuestions">,
 ) {
-  const jobs = await ctx.db.query("aiJobs").order("desc").take(MAX_ACTIVE_JOBS * 4);
+  const jobs = await ctx.db
+    .query("aiJobs")
+    .withIndex("by_ownerId", (query) => query.eq("ownerId", ownerId))
+    .order("desc")
+    .take(MAX_ACTIVE_JOBS * 4);
   return jobs.filter((job) => job.kind === "question_rewrite" && job.questionId === questionId);
 }
 
@@ -154,13 +186,20 @@ export const createHomeworkGeneration = mutation({
   },
   returns: v.id("aiJobs"),
   handler: async (ctx, args) => {
+    const user = await requireCurrentUser(ctx);
+    if (args.studentId) {
+      requireOwned(await ctx.db.get("students", args.studentId), user._id, "Student not found.");
+    }
     const existingJob = await ctx.db
       .query("aiJobs")
-      .withIndex("by_requestId", (q) => q.eq("requestId", args.requestId))
+      .withIndex("by_ownerId_and_requestId", (q) =>
+        q.eq("ownerId", user._id).eq("requestId", args.requestId),
+      )
       .unique();
     if (existingJob) throw new Error(`AI job ${args.requestId} already exists.`);
 
     return ctx.db.insert("aiJobs", {
+      ownerId: user._id,
       requestId: args.requestId,
       kind: "homework_generation",
       status: "pending",
@@ -177,8 +216,8 @@ export const markRunning = mutation({
   args: { aiJobId: v.id("aiJobs") },
   returns: v.null(),
   handler: async (ctx, args) => {
-    const aiJob = await ctx.db.get("aiJobs", args.aiJobId);
-    if (!aiJob) throw new Error("AI job not found.");
+    const user = await requireCurrentUser(ctx);
+    const aiJob = requireOwned(await ctx.db.get("aiJobs", args.aiJobId), user._id, "AI job not found.");
     if (aiJob.status !== "pending") throw new Error(`Cannot start a ${aiJob.status} AI job.`);
 
     await ctx.db.patch("aiJobs", args.aiJobId, { status: "running", startedAt: Date.now() });
@@ -198,8 +237,9 @@ export const recordProgress = mutation({
   },
   returns: v.null(),
   handler: async (ctx, args) => {
+    const user = await requireCurrentUser(ctx);
     const aiJob = await ctx.db.get("aiJobs", args.aiJobId);
-    if (!aiJob) return null;
+    if (!aiJob || aiJob.ownerId !== user._id) return null;
     if (aiJob.status !== "pending" && aiJob.status !== "running") return null;
 
     await ctx.db.patch("aiJobs", args.aiJobId, {
@@ -214,12 +254,13 @@ export const completeHomeworkGeneration = mutation({
   args: { aiJobId: v.id("aiJobs"), draft: homeworkDraftValidator },
   returns: v.id("homeworkDrafts"),
   handler: async (ctx, args) => {
-    const aiJob = await ctx.db.get("aiJobs", args.aiJobId);
-    if (!aiJob) throw new Error("AI job not found.");
+    const user = await requireCurrentUser(ctx);
+    const aiJob = requireOwned(await ctx.db.get("aiJobs", args.aiJobId), user._id, "AI job not found.");
     if (aiJob.status !== "running") throw new Error(`Cannot complete a ${aiJob.status} AI job.`);
 
     const createdAt = Date.now();
     const homeworkDraftId = await ctx.db.insert("homeworkDrafts", {
+      ownerId: user._id,
       aiJobId: args.aiJobId,
       ...(aiJob.studentId ? { studentId: aiJob.studentId } : {}),
       title: args.draft.title,
@@ -235,6 +276,7 @@ export const completeHomeworkGeneration = mutation({
 
     for (const [order, question] of args.draft.questions.entries()) {
       await ctx.db.insert("homeworkQuestions", {
+        ownerId: user._id,
         homeworkDraftId,
         order,
         type: question.type,
@@ -262,8 +304,8 @@ export const finishWithError = mutation({
   },
   returns: v.null(),
   handler: async (ctx, args) => {
-    const aiJob = await ctx.db.get("aiJobs", args.aiJobId);
-    if (!aiJob) throw new Error("AI job not found.");
+    const user = await requireCurrentUser(ctx);
+    const aiJob = requireOwned(await ctx.db.get("aiJobs", args.aiJobId), user._id, "AI job not found.");
     if (aiJob.status === "completed") throw new Error("A completed AI job cannot be failed.");
 
     await ctx.db.patch("aiJobs", args.aiJobId, {
@@ -276,6 +318,11 @@ export const finishWithError = mutation({
 });
 
 const MAX_ACTIVE_JOBS = 20;
+/**
+ * Longer than the desktop process will let a generation run, so a job is only
+ * treated as abandoned once no live run could still be behind it.
+ */
+const ABANDONED_JOB_AFTER_MS = 20 * 60_000;
 /** Long enough to be seen after a coffee, short enough not to become clutter. */
 const FAILURE_VISIBLE_FOR_MS = 2 * 60 * 60 * 1_000;
 
@@ -302,16 +349,30 @@ export const listActive = query({
     }),
   ),
   handler: async (ctx) => {
+    const user = await requireCurrentUser(ctx);
     const pending = await ctx.db
       .query("aiJobs")
-      .withIndex("by_status_and_createdAt", (q) => q.eq("status", "pending"))
+      .withIndex("by_ownerId_and_status_and_createdAt", (q) =>
+        q.eq("ownerId", user._id).eq("status", "pending"),
+      )
       .order("desc")
       .take(MAX_ACTIVE_JOBS);
-    const running = await ctx.db
-      .query("aiJobs")
-      .withIndex("by_status_and_createdAt", (q) => q.eq("status", "running"))
-      .order("desc")
-      .take(MAX_ACTIVE_JOBS);
+    /**
+     * A run lives in the desktop process, which marks its own job finished. When
+     * that process dies without getting the chance — a crash, a force quit — the
+     * row stays "running" forever, and the library kept promising a generation
+     * that nothing was working on. Past the point where a live run would have
+     * timed out, it is no longer news.
+     */
+    const running = (
+      await ctx.db
+        .query("aiJobs")
+        .withIndex("by_ownerId_and_status_and_createdAt", (q) =>
+          q.eq("ownerId", user._id).eq("status", "running"),
+        )
+        .order("desc")
+        .take(MAX_ACTIVE_JOBS)
+    ).filter((job) => Date.now() - (job.startedAt ?? job.createdAt) < ABANDONED_JOB_AFTER_MS);
     /**
      * A generation now runs while the teacher is somewhere else, so a failure
      * has nowhere else to surface. Recent ones stay in the list until dismissed.
@@ -319,7 +380,9 @@ export const listActive = query({
     const failed = (
       await ctx.db
         .query("aiJobs")
-        .withIndex("by_status_and_createdAt", (q) => q.eq("status", "failed"))
+        .withIndex("by_ownerId_and_status_and_createdAt", (q) =>
+          q.eq("ownerId", user._id).eq("status", "failed"),
+        )
         .order("desc")
         .take(MAX_ACTIVE_JOBS)
     ).filter((job) => Date.now() - (job.completedAt ?? job.createdAt) < FAILURE_VISIBLE_FOR_MS);
@@ -373,7 +436,12 @@ export const listRecent = query({
     }),
   ),
   handler: async (ctx) => {
-    const jobs = await ctx.db.query("aiJobs").order("desc").take(10);
+    const user = await requireCurrentUser(ctx);
+    const jobs = await ctx.db
+      .query("aiJobs")
+      .withIndex("by_ownerId", (query) => query.eq("ownerId", user._id))
+      .order("desc")
+      .take(10);
     return jobs.map((job) => ({
       _id: job._id,
       title: job.title,

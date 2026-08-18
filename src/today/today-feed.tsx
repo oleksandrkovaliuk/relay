@@ -3,7 +3,7 @@ import { HugeiconsIcon } from "@hugeicons/react";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { useMutation } from "convex/react";
 import { useQuery } from "convex-helpers/react/cache";
-import { AlertTriangle, ArrowRight, Clock3, Eye, Inbox, Star } from "lucide-react";
+import { ArrowRight, BookOpen, Clock3, Eye, Inbox, Star } from "lucide-react";
 import { useState } from "react";
 
 import { api } from "@convex/_generated/api";
@@ -109,7 +109,7 @@ export function TodayFeed({ now }: { now: number }) {
         <span className="numeric">{activeStudentCount} active</span>
         <span aria-hidden>·</span>
         <span className={cn("numeric", pendingReviewCount > 0 && "font-medium text-foreground")}>
-          {pendingReviewCount} to grade
+          {pendingReviewCount} to read
         </span>
         {todayItems.length > 0 ? (
           <>
@@ -475,7 +475,7 @@ function StudentAttentionList({
                     </p>
                     {student.pendingReviewCount > 0 ? (
                       <span className="shrink-0 text-[11.5px] font-medium text-destructive numeric xl:text-[12.5px]">
-                        {student.pendingReviewCount} to review
+                        {student.pendingReviewCount} to read
                       </span>
                     ) : null}
                   </div>
@@ -571,7 +571,7 @@ function FeedCard({
             ) : null}
             {item.pendingReviewCount > 0 ? (
               <span className="flex items-center gap-1.5 font-medium text-destructive">
-                <AlertTriangle size={13} aria-hidden /> {item.pendingReviewCount} to review
+                <BookOpen size={13} aria-hidden /> {item.pendingReviewCount} to read
               </span>
             ) : null}
             {item.feedback ? (

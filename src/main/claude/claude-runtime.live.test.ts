@@ -41,9 +41,8 @@ it(
         studentContext: "B1 learner. Drops articles and confuses past simple with past perfect.",
         lessonNotes: "Practiced travel stories. New words: platform, delayed, luggage.",
         targetSkills: ["past perfect", "travel vocabulary"],
-        durationMinutes: 10,
         difficulty: "intermediate",
-        activityTypes: [],
+        activityPlan: [{ type: "fill_blank", itemCount: 4 }],
       }),
       createHomeworkOutputSchema(),
     );

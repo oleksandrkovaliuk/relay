@@ -13,6 +13,10 @@ type DailySubmissions = FunctionReturnType<typeof api.dashboard.overview>["daily
 
 const SUBMISSION_CHART_MARGIN = { top: 8, right: 8, bottom: 0, left: -16 };
 
+/**
+ * The keys are calendar days already, resolved in the teacher's timezone by the
+ * query. Formatting them in local time would shift them a second time.
+ */
 const CHART_DATE_FORMATTER = new Intl.DateTimeFormat(undefined, {
   day: "numeric",
   month: "short",

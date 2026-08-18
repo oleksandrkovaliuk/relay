@@ -78,7 +78,11 @@ export function InsightsView({
 }) {
   const filter = resolveInsightFilter(search, now);
   const filterArgument = { filter };
-  const overview = useQuery(api.dashboard.overview, filterArgument);
+  const overview = useQuery(api.dashboard.overview, {
+    ...filterArgument,
+    // Days break where the teacher is, not at UTC midnight.
+    dayOffsetMinutes: new Date().getTimezoneOffset(),
+  });
   const highlights = useQuery(api.dashboard.highlights, { ...filterArgument, now });
   const skills = useQuery(api.dashboard.skillMastery, filterArgument);
   const questions = useQuery(api.dashboard.questionInsights, filterArgument);

@@ -2,10 +2,11 @@ import { v, type Infer } from "convex/values";
 
 import { query, type QueryCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
+import { requireCurrentUser } from "./auth";
+import { MAX_QUESTIONS } from "./limits";
 
 const MAX_SUBMISSIONS = 300;
 const MAX_ANSWERS = 800;
-const MAX_QUESTIONS = 40;
 const TOP_LIST_SIZE = 6;
 const MAX_STUDENTS_PER_SKILL = 6;
 const MAX_HIGHLIGHTS = 6;
@@ -81,8 +82,22 @@ type GradedAnswer = {
   student: Doc<"students"> | null;
 };
 
-function dayKey(timestamp: number) {
-  return new Date(timestamp).toISOString().slice(0, 10);
+/**
+ * The calendar day a moment belongs to, in the teacher's own timezone. Bucketing
+ * in UTC put a session worked at eleven at night into the next day's column for
+ * anyone east of London, and the chart's labels — rendered locally — disagreed
+ * with the buckets they sat under.
+ */
+const MAX_DAY_OFFSET_MINUTES = 14 * 60;
+
+function dayKey(timestamp: number, dayOffsetMinutes: number) {
+  return new Date(timestamp - dayOffsetMinutes * 60_000).toISOString().slice(0, 10);
+}
+
+/** `Date.prototype.getTimezoneOffset()` as the client reports it, bounded. */
+function readDayOffsetMinutes(dayOffsetMinutes: number | undefined) {
+  if (dayOffsetMinutes === undefined || !Number.isFinite(dayOffsetMinutes)) return 0;
+  return Math.max(-MAX_DAY_OFFSET_MINUTES, Math.min(MAX_DAY_OFFSET_MINUTES, dayOffsetMinutes));
 }
 
 function percentage(part: number, whole: number) {
@@ -109,7 +124,11 @@ function isWithinFilter(submission: Doc<"submissions">, filter?: InsightFilter) 
  * The submissions in scope, newest first. A student filter reads the student's
  * own index rather than scanning everyone's work.
  */
-async function loadSubmissions(ctx: QueryCtx, filter?: InsightFilter) {
+async function loadSubmissions(
+  ctx: QueryCtx,
+  ownerId: Id<"users">,
+  filter?: InsightFilter,
+) {
   const studentId = filter?.studentId;
   const submissions = studentId
     ? await ctx.db
@@ -117,8 +136,14 @@ async function loadSubmissions(ctx: QueryCtx, filter?: InsightFilter) {
         .withIndex("by_studentId_and_startedAt", (q) => q.eq("studentId", studentId))
         .order("desc")
         .take(MAX_SUBMISSIONS)
-    : await ctx.db.query("submissions").order("desc").take(MAX_SUBMISSIONS);
-  return submissions.filter((submission) => isWithinFilter(submission, filter));
+    : await ctx.db
+        .query("submissions")
+        .withIndex("by_ownerId_and_startedAt", (q) => q.eq("ownerId", ownerId))
+        .order("desc")
+        .take(MAX_SUBMISSIONS);
+  return submissions.filter(
+    (submission) => submission.ownerId === ownerId && isWithinFilter(submission, filter),
+  );
 }
 
 /** Every graded answer belonging to those submissions, with its question and student. */
@@ -191,7 +216,11 @@ function selectBalancedStudentMastery(students: StudentMastery[]) {
 }
 
 export const overview = query({
-  args: { filter: v.optional(insightFilterValidator) },
+  args: {
+    filter: v.optional(insightFilterValidator),
+    /** The client's `getTimezoneOffset()`, so days break where the teacher is. */
+    dayOffsetMinutes: v.optional(v.number()),
+  },
   returns: v.object({
     publishedAssignments: v.number(),
     activeStudents: v.number(),
@@ -207,10 +236,13 @@ export const overview = query({
     ),
   }),
   handler: async (ctx, args) => {
+    const user = await requireCurrentUser(ctx);
     const assignments = (
       await ctx.db
         .query("assignments")
-        .withIndex("by_status_and_publishedAt", (q) => q.eq("status", "published"))
+        .withIndex("by_ownerId_and_status_and_publishedAt", (q) =>
+          q.eq("ownerId", user._id).eq("status", "published"),
+        )
         .take(MAX_SUBMISSIONS)
     ).filter((assignment) => {
       if (args.filter?.studentId && assignment.studentId !== args.filter.studentId) return false;
@@ -222,9 +254,11 @@ export const overview = query({
     });
     const students = await ctx.db
       .query("students")
-      .withIndex("by_status_and_createdAt", (q) => q.eq("status", "active"))
+      .withIndex("by_ownerId_and_status_and_createdAt", (q) =>
+        q.eq("ownerId", user._id).eq("status", "active"),
+      )
       .take(MAX_SUBMISSIONS);
-    const submissions = await loadSubmissions(ctx, args.filter);
+    const submissions = await loadSubmissions(ctx, user._id, args.filter);
     const submissionIds = new Set(submissions.map((submission) => submission._id));
     const feedbackItems = (
       await ctx.db.query("submissionFeedback").order("desc").take(MAX_SUBMISSIONS)
@@ -236,14 +270,15 @@ export const overview = query({
     );
     const timed = submitted.filter((submission) => (submission.activeMs ?? 0) > 0);
 
+    const dayOffsetMinutes = readDayOffsetMinutes(args.dayOffsetMinutes);
     const buckets = new Map<string, { submitted: number; started: number }>();
     for (const submission of submissions) {
-      const startedKey = dayKey(submission.startedAt);
+      const startedKey = dayKey(submission.startedAt, dayOffsetMinutes);
       const startedBucket = buckets.get(startedKey) ?? { submitted: 0, started: 0 };
       startedBucket.started += 1;
       buckets.set(startedKey, startedBucket);
       if (!submission.submittedAt) continue;
-      const submittedKey = dayKey(submission.submittedAt);
+      const submittedKey = dayKey(submission.submittedAt, dayOffsetMinutes);
       const submittedBucket = buckets.get(submittedKey) ?? { submitted: 0, started: 0 };
       submittedBucket.submitted += 1;
       buckets.set(submittedKey, submittedBucket);
@@ -309,7 +344,11 @@ export const skillMastery = query({
     }),
   ),
   handler: async (ctx, args) => {
-    const graded = await loadGradedAnswers(ctx, await loadSubmissions(ctx, args.filter));
+    const user = await requireCurrentUser(ctx);
+    const graded = await loadGradedAnswers(
+      ctx,
+      await loadSubmissions(ctx, user._id, args.filter),
+    );
     const totals = collectSkillTotals(graded);
     const studentNames = new Map(
       graded
@@ -378,7 +417,11 @@ export const questionInsights = query({
     }),
   ),
   handler: async (ctx, args) => {
-    const graded = await loadGradedAnswers(ctx, await loadSubmissions(ctx, args.filter));
+    const user = await requireCurrentUser(ctx);
+    const graded = await loadGradedAnswers(
+      ctx,
+      await loadSubmissions(ctx, user._id, args.filter),
+    );
     const titleCache = new Map<Id<"assignments">, string>();
     const insights = [];
 
@@ -444,10 +487,13 @@ export const studentPressure = query({
     }),
   ),
   handler: async (ctx, args) => {
+    const user = await requireCurrentUser(ctx);
     const students = (
       await ctx.db
         .query("students")
-        .withIndex("by_status_and_createdAt", (q) => q.eq("status", "active"))
+        .withIndex("by_ownerId_and_status_and_createdAt", (q) =>
+          q.eq("ownerId", user._id).eq("status", "active"),
+        )
         .take(MAX_QUESTIONS)
     ).filter((student) => !args.filter?.studentId || student._id === args.filter.studentId);
 
@@ -495,7 +541,8 @@ export const highlights = query({
   args: { filter: v.optional(insightFilterValidator), now: v.number() },
   returns: v.array(insightHighlightValidator),
   handler: async (ctx, args) => {
-    const submissions = await loadSubmissions(ctx, args.filter);
+    const user = await requireCurrentUser(ctx);
+    const submissions = await loadSubmissions(ctx, user._id, args.filter);
     const graded = await loadGradedAnswers(ctx, submissions);
     const studentNames = new Map<Id<"students">, string>();
     for (const { student } of graded) {
@@ -586,8 +633,8 @@ function describePendingReview(submissions: Doc<"submissions">[]): InsightHighli
       key: "0-pending-review",
       kind: "pending_review",
       tone: "attention",
-      title: `${countLabel(total, "written answer")} waiting on you`,
-      detail: `Across ${countLabel(waiting.length, "submission")} from ${listNames(waiting.map((submission) => submission.studentName))}. Grading them completes their scores.`,
+      title: `${countLabel(total, "written answer")} to read`,
+      detail: `Across ${countLabel(waiting.length, "submission")} from ${listNames(waiting.map((submission) => submission.studentName))}. Writing is never scored — it is where the next lesson comes from.`,
       value: String(total),
       studentId: mostWaiting?.studentId ?? null,
       submissionId: mostWaiting?._id ?? null,

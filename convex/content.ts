@@ -69,7 +69,16 @@ export const questionContentValidator = v.union(
 );
 
 export const publicQuestionContentValidator = v.union(
-  v.object({ kind: v.literal("multiple_choice"), choices: v.array(v.string()) }),
+  v.object({
+    kind: v.literal("multiple_choice"),
+    choices: v.array(v.string()),
+    /**
+     * How many options are right — a count, never which ones. A student facing
+     * four plausible options and no idea whether one or three of them count
+     * cannot tell a finished answer from an unfinished one.
+     */
+    correctChoiceCount: v.number(),
+  }),
   v.object({
     kind: v.literal("fill_blank"),
     text: v.string(),
@@ -184,7 +193,13 @@ export function isAutoGradable(content: QuestionContent) {
 export function toPublicContent(content: QuestionContent): PublicQuestionContent {
   switch (content.kind) {
     case "multiple_choice":
-      return { kind: "multiple_choice", choices: content.choices };
+      return {
+        kind: "multiple_choice",
+        choices: content.choices,
+        // At least one, even for a key that somehow lost its answer, so the
+        // student is never told to choose none.
+        correctChoiceCount: Math.max(1, correctChoiceIndices(content).length),
+      };
     case "fill_blank":
       return {
         kind: "fill_blank",

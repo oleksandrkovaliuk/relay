@@ -17,6 +17,14 @@ const buttonVariants = cva(
           "hover:bg-muted hover:text-foreground aria-expanded:bg-muted aria-expanded:text-foreground dark:hover:bg-muted/50",
         destructive:
           "bg-destructive/10 text-destructive hover:bg-destructive/20 focus-visible:border-destructive/40 focus-visible:ring-destructive/20 dark:bg-destructive/20 dark:hover:bg-destructive/30 dark:focus-visible:ring-destructive/40",
+        /**
+         * A destroying action that sits among ordinary ones — a row's delete
+         * icon. Quiet until reached, and then unmistakably destructive: its
+         * outline and focus ring are red too, because a ring in the accent
+         * colour is what makes a delete button look like any other control.
+         */
+        destructiveGhost:
+          "text-muted-foreground hover:bg-destructive/10 hover:text-destructive focus-visible:border-destructive/50 focus-visible:ring-destructive/25 focus-visible:text-destructive dark:hover:bg-destructive/20",
         danger:
           "bg-destructive text-white hover:bg-destructive/90 focus-visible:border-destructive/40 focus-visible:ring-destructive/25",
         link: "text-primary underline-offset-4 hover:underline",

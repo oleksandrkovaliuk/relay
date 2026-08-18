@@ -12,10 +12,13 @@ import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select"
 import { Skeleton } from "@/components/ui/skeleton";
 import { prewarmSubmissionDetail } from "@/lib/convex-query-warmup";
 import { cn, formatDuration, humanizeIdentifier } from "@/lib/utils";
-import { emptyResponse } from "@/homework/player/answer-types";
+import {
+  emptyResponse,
+  groupQuestionsIntoSections,
+  toWidgetMarking,
+} from "@/homework/player/answer-types";
 import { PromptContent } from "@/homework/player/prompt-content";
 import { QuestionWidget } from "@/homework/player/question-widgets";
-import { GradeAnswerForm } from "./grade-answer-form";
 import { LessonPicker } from "./lesson-picker";
 
 type Submission = NonNullable<ReturnType<typeof useQuery<typeof api.submissions.detail>>>;
@@ -24,7 +27,7 @@ type AnswerState =
   | NonNullable<SubmissionAnswer["correctness"]>
   | "answered"
   | "not_answered"
-  | "not_graded";
+  | "not_scored";
 
 const LESSON_DATE_FORMATTER = new Intl.DateTimeFormat(undefined, {
   month: "short",
@@ -37,8 +40,9 @@ const ignoreReadOnlyChange = () => undefined;
 /**
  * The one place homework gets reviewed, wherever the teacher came from: the
  * student's other sets down the left, the chosen one marked up on the right,
- * every answer shown inside the widget the student actually used. Grading a
- * written answer happens on the answer itself rather than in a form at the end.
+ * every answer shown inside the widget the student actually used. Nothing here is
+ * graded by hand: the machine marks what it can, and written answers are
+ * evidence to read rather than points to award.
  */
 export function SubmissionReview({
   studentId,
@@ -223,9 +227,10 @@ function SelectedLesson({
           <p className="mt-4 rounded-xl border border-primary/25 bg-primary-soft/50 px-3.5 py-2.5 text-[12.5px] leading-5 text-foreground">
             <span className="font-semibold">
               {pendingAnswers.length} written{" "}
-              {pendingAnswers.length === 1 ? "answer needs" : "answers need"} your grade.
+              {pendingAnswers.length === 1 ? "answer" : "answers"} to read.
             </span>{" "}
-            The student&rsquo;s score stays incomplete until you decide. They are marked below.
+            Writing is not scored — it is here to tell you what to teach next. They are
+            marked below.
           </p>
         ) : null}
 
@@ -257,19 +262,41 @@ function SelectedLesson({
             No lesson steps are available.
           </p>
         ) : (
-          <ol className="mt-5">
-            {detail.answers.map((answer, index) => (
-              <LessonStep
-                key={answer.questionId}
-                answer={answer}
-                submissionId={detail._id}
-                index={index}
-                isLast={index === detail.answers.length - 1}
-                isSubmissionComplete={detail.status === "submitted"}
-                isFocused={focusStep === index + 1}
-              />
-            ))}
-          </ol>
+          /* Grouped the way the student worked through it: one block per
+             section, so a run of ten sentences reads as one piece of practice
+             with one score rather than ten unrelated steps. */
+          groupQuestionsIntoSections(detail.answers).map((section) => (
+            <section key={section.key} className="mt-7 first:mt-5">
+              <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 border-t border-border/70 pt-3">
+                <h4 className="text-[14px] font-semibold tracking-[-0.01em] text-foreground">
+                  {section.title}
+                </h4>
+                <span className="text-[12px] text-muted-foreground numeric">
+                  {describeSectionScore(section.questions)}
+                </span>
+              </div>
+              {section.task && section.task !== section.title ? (
+                <p className="mt-1 max-w-2xl text-pretty text-[12.5px] leading-5 text-muted-foreground">
+                  {section.task}
+                </p>
+              ) : null}
+              <ol className="mt-4">
+                {section.questions.map((answer, positionInSection) => {
+                  const index = section.firstActivityNumber - 1 + positionInSection;
+                  return (
+                    <LessonStep
+                      key={answer.questionId}
+                      answer={answer}
+                      index={index}
+                      isLast={positionInSection === section.questions.length - 1}
+                      isSubmissionComplete={detail.status === "submitted"}
+                      isFocused={focusStep === index + 1}
+                    />
+                  );
+                })}
+              </ol>
+            </section>
+          ))
         )}
       </section>
     </article>
@@ -338,14 +365,12 @@ function LessonSkeleton() {
 
 function LessonStep({
   answer,
-  submissionId,
   index,
   isLast,
   isSubmissionComplete,
   isFocused,
 }: {
   answer: SubmissionAnswer;
-  submissionId: Id<"submissions">;
   index: number;
   isLast: boolean;
   isSubmissionComplete: boolean;
@@ -354,12 +379,12 @@ function LessonStep({
 }) {
   const stepRef = useRef<HTMLLIElement>(null);
   const answerState = getAnswerState(answer, isSubmissionComplete);
-  const status = getAnswerStatus(answerState);
-  const isPendingReview = answerState === "pending_review";
+  const status = getAnswerStatus(answerState, answer.isProvisional);
+  const isWrittenAnswer = answerState === "pending_review";
   const shouldShowExpectedAnswer =
     answer.answered &&
     Boolean(answer.correctAnswer) &&
-    (answerState === "incorrect" || answerState === "partial" || isPendingReview);
+    (answerState === "incorrect" || answerState === "partial" || isWrittenAnswer);
   const response = answer.response ?? emptyResponse(answer.publicContent);
 
   useEffect(function revealTheLinkedStep() {
@@ -413,6 +438,11 @@ function LessonStep({
           {answer.instructions}
         </p>
 
+        {/* Marked, not merely replayed. Reading the student's answer inside the
+            widget they used is the point of this page, but an unmarked widget
+            draws a wrong choice with the same tick as a right one — the teacher
+            could not tell whether the answer was correct without checking the
+            key underneath it. */}
         <div
           className="mt-4 max-w-2xl"
           aria-label={answer.answered ? "Submitted answer" : "No submitted answer"}
@@ -422,6 +452,11 @@ function LessonStep({
             response={response}
             onChange={ignoreReadOnlyChange}
             isReadOnly
+            marking={
+              answer.answered && answer.correctness && answer.correctness !== "pending_review"
+                ? toWidgetMarking(answer)
+                : undefined
+            }
           />
         </div>
 
@@ -453,67 +488,76 @@ function LessonStep({
           ) : null}
         </div>
 
-        {/* Last, so the decision comes after everything it should be based on. */}
-        {isPendingReview ? (
-          <GradeAnswerForm answer={answer} submissionId={submissionId} />
-        ) : null}
       </article>
     </li>
   );
+}
+
+/** Points won inside one section, ignoring what is still for the teacher to read. */
+function describeSectionScore(answers: SubmissionAnswer[]) {
+  const graded = answers.filter(
+    (answer) => answer.correctness && answer.correctness !== "pending_review",
+  );
+  if (graded.length === 0) return "written · for you to read";
+  const awarded = graded.reduce((total, answer) => total + (answer.pointsAwarded ?? 0), 0);
+  const available = graded.reduce((total, answer) => total + answer.points, 0);
+  return `${awarded} / ${available} points`;
 }
 
 function getLessonScoreLabel(detail: Submission, answeredCount: number) {
   if (detail.status !== "submitted") {
     return `${answeredCount} of ${detail.answers.length} answered`;
   }
-  if (detail.score === undefined) return "Grading pending";
+  if (detail.score === undefined) return "Not scored yet";
   return `${detail.score} / ${detail.maxAutoScore} points`;
 }
 
 function getAnswerState(answer: SubmissionAnswer, isSubmissionComplete: boolean): AnswerState {
   if (!answer.answered) return "not_answered";
   if (answer.correctness) return answer.correctness;
-  if (isSubmissionComplete) return "not_graded";
+  if (isSubmissionComplete) return "not_scored";
   return "answered";
 }
 
 function getPointsLabel(answer: SubmissionAnswer) {
-  const hasFinalGrade =
-    answer.answered &&
-    answer.pointsAwarded !== undefined &&
-    answer.correctness !== undefined &&
-    answer.correctness !== "pending_review";
-  if (!hasFinalGrade) return "Not graded";
+  // Written work carries no points at all, so it says so rather than looking
+  // like a score somebody still owes.
+  if (answer.correctness === "pending_review") return "Not scored";
+  // Marked as it stands, but the student can still change it.
+  if (answer.isProvisional) return "Not scored yet";
+  const isScored =
+    answer.answered && answer.pointsAwarded !== undefined && answer.correctness !== undefined;
+  if (!isScored) return "Not scored";
   return `${answer.pointsAwarded} / ${answer.points} points`;
 }
 
-function getAnswerStatus(answerState: AnswerState) {
+function getAnswerStatus(answerState: AnswerState, isProvisional = false) {
   if (answerState === "correct") {
     return {
-      label: "Correct",
+      label: isProvisional ? "Right so far" : "Correct",
       textClassName: "text-primary",
       circleClassName: "ring-primary/30 text-primary",
     };
   }
   if (answerState === "incorrect") {
     return {
-      label: "Incorrect",
+      label: isProvisional ? "Wrong so far" : "Incorrect",
       textClassName: "text-destructive",
       circleClassName: "ring-destructive/25 text-destructive",
     };
   }
   if (answerState === "partial") {
     return {
-      label: "Partly right",
+      label: isProvisional ? "Partly right so far" : "Partly right",
       textClassName: "text-primary",
       circleClassName: "ring-primary/30 text-primary",
     };
   }
   if (answerState === "pending_review") {
     return {
-      label: "Needs your grade",
-      textClassName: "text-primary",
-      circleClassName: "ring-primary/50 bg-primary-soft text-primary",
+      label: "Written answer",
+      textClassName: "text-secondary-foreground",
+      circleClassName: "ring-primary/40 bg-primary-soft/60 text-primary",
     };
   }
   if (answerState === "not_answered") {
@@ -523,9 +567,9 @@ function getAnswerStatus(answerState: AnswerState) {
       circleClassName: "ring-border text-muted-foreground",
     };
   }
-  if (answerState === "not_graded") {
+  if (answerState === "not_scored") {
     return {
-      label: "Not graded",
+      label: "Not scored",
       textClassName: "text-secondary-foreground",
       circleClassName: "ring-border text-secondary-foreground",
     };

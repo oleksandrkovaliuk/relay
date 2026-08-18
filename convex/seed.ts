@@ -87,11 +87,12 @@ const SEED_QUESTIONS: SeedQuestion[] = [
 ];
 
 export const demoHomework = internalMutation({
-  args: { shareToken: v.string() },
+  args: { shareToken: v.string(), ownerId: v.optional(v.id("users")) },
   returns: v.object({ shareToken: v.string(), studentId: v.id("students") }),
   handler: async (ctx, args) => {
     const now = Date.now();
     const studentId = await ctx.db.insert("students", {
+      ownerId: args.ownerId,
       name: "Mira Petrova",
       email: "mira@example.com",
       miroBoardUrl: "https://miro.com/app/board/demo-mira/",
@@ -102,6 +103,7 @@ export const demoHomework = internalMutation({
     });
 
     const aiJobId = await ctx.db.insert("aiJobs", {
+      ownerId: args.ownerId,
       requestId: `seed-${args.shareToken}`,
       kind: "homework_generation",
       status: "running",
@@ -113,6 +115,7 @@ export const demoHomework = internalMutation({
     });
 
     const homeworkDraftId = await ctx.db.insert("homeworkDrafts", {
+      ownerId: args.ownerId,
       aiJobId,
       studentId,
       title: "Travel stories: past perfect & articles",
@@ -130,6 +133,7 @@ export const demoHomework = internalMutation({
     await ctx.db.patch("aiJobs", aiJobId, { status: "completed", completedAt: now });
 
     const assignmentId = await ctx.db.insert("assignments", {
+      ownerId: args.ownerId,
       homeworkDraftId,
       studentId,
       title: "Travel stories: past perfect & articles",
@@ -145,11 +149,26 @@ export const demoHomework = internalMutation({
       status: "published",
       publishedAt: now,
     });
-    await ctx.db.insert("assignmentStudents", { assignmentId, studentId, createdAt: now });
+    await ctx.db.insert("assignmentStudents", {
+      ownerId: args.ownerId,
+      assignmentId,
+      studentId,
+      createdAt: now,
+    });
 
     for (const [order, question] of SEED_QUESTIONS.entries()) {
-      await ctx.db.insert("homeworkQuestions", { homeworkDraftId, order, ...question });
-      await ctx.db.insert("assignmentQuestions", { assignmentId, order, ...question });
+      await ctx.db.insert("homeworkQuestions", {
+        ownerId: args.ownerId,
+        homeworkDraftId,
+        order,
+        ...question,
+      });
+      await ctx.db.insert("assignmentQuestions", {
+        ownerId: args.ownerId,
+        assignmentId,
+        order,
+        ...question,
+      });
     }
 
     return { shareToken: args.shareToken, studentId };

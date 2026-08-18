@@ -30,21 +30,24 @@ const CONTROL_FEEDBACK =
   "transition-[background-color,color,transform] duration-150 active:scale-[.97] motion-reduce:active:scale-100";
 const SIDEBAR_ITEM =
   "flex h-9 items-center gap-2.5 rounded-lg text-[13px] outline-none focus-visible:ring-2 focus-visible:ring-white/20";
-const CLAUDE_ACCOUNT_CONTROL =
+const ACCOUNT_CONTROL =
   "flex min-h-11 w-full items-center gap-2.5 rounded-lg text-left outline-none hover:bg-white/[0.05] focus-visible:ring-2 focus-visible:ring-white/20";
 const SIDEBAR_COLLAPSED_STORAGE_KEY = "relay:sidebar-collapsed:v1";
 
 export function WorkspaceShell({
   availability,
-  accountName,
+  teacher,
   awaitingSummaryCount,
   draftsReadyCount,
   contentKey,
   children,
 }: {
   availability: ClaudeAvailability | null;
-  /** Label of the Claude login currently in use. */
-  accountName: string;
+  /**
+   * Who is signed in to Relay. This is the identity the workspace belongs to —
+   * the Claude login is a tool it uses, and lives in the status line instead.
+   */
+  teacher: { name: string | null; email: string | null; imageUrl: string | null } | null;
   awaitingSummaryCount: number;
   /** Drafts finished generating and waiting to be reviewed. */
   draftsReadyCount: number;
@@ -52,7 +55,6 @@ export function WorkspaceShell({
   contentKey: string;
   children: ReactNode;
 }) {
-  const isClaudeReady = availability?.isAuthenticated ?? false;
   const contentRef = useRef<HTMLDivElement>(null);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(readSidebarCollapsed);
   const router = useRouter();
@@ -215,33 +217,40 @@ export function WorkspaceShell({
 
         <div
           className={cn(
-            "no-drag mb-3",
+            "no-drag mb-3 grid gap-1",
             isSidebarCollapsed ? "mx-3" : "mx-2.5",
           )}
         >
-          {/* Always the route to Settings, in every Claude state: appearance and
-              account management must stay reachable even with no CLI installed. */}
+          {/* The runtime the app depends on, reported where a status belongs:
+              under everything, quiet while it works, loud when it needs something. */}
+          <ClaudeStatusLine
+            availability={availability}
+            isSidebarCollapsed={isSidebarCollapsed}
+          />
+
+          {/* Always the route to Settings, in every state: appearance, the Relay
+              account and the Claude logins all live there. */}
           <Link
             to="/settings"
             className={cn(
               CONTROL_FEEDBACK,
-              CLAUDE_ACCOUNT_CONTROL,
+              ACCOUNT_CONTROL,
               isSidebarCollapsed ? "justify-center px-1" : "justify-start px-2.5",
             )}
-            aria-label={`${accountName}. ${describeClaudeState(availability)}. Open settings.`}
+            aria-label={`Signed in as ${describeTeacher(teacher).primary}. Open settings.`}
             activeProps={{ className: "bg-white/[0.075]" }}
           >
-            <ClaudeAccountAvatar state={describeClaudeAvatarState(availability)} />
+            <TeacherAvatar teacher={teacher} />
             {isSidebarCollapsed ? null : (
               <span className="min-w-0 flex-1">
-                <span className="block truncate text-[12.5px] text-white/85">{accountName}</span>
-                {/* A second line only when Claude needs something; "connected" is
-                    already said by the dot on the avatar. */}
-                {isClaudeReady ? null : (
+                <span className="block truncate text-[12.5px] text-white/85">
+                  {describeTeacher(teacher).primary}
+                </span>
+                {describeTeacher(teacher).secondary ? (
                   <span className="block truncate text-[11px] text-white/45">
-                    {describeClaudeState(availability)}
+                    {describeTeacher(teacher).secondary}
                   </span>
-                )}
+                ) : null}
               </span>
             )}
             {isSidebarCollapsed ? null : (
@@ -361,33 +370,115 @@ function rememberSidebarState(isCollapsed: boolean) {
 }
 
 function describeClaudeState(availability: ClaudeAvailability | null) {
-  if (availability === null) return "Checking Claude";
-  if (availability.isAuthenticated) return "Claude CLI connected";
-  if (availability.isInstalled) return "Sign-in needed";
-  return "Not installed";
+  if (availability === null) return "Checking Claude…";
+  if (availability.isAuthenticated) return "Claude connected";
+  if (availability.isInstalled) return "Claude sign-in needed";
+  return "Claude not installed";
 }
 
-function ClaudeAccountAvatar({
-  state,
-}: {
-  state: "ready" | "signin" | "checking" | "missing";
-}) {
+type Teacher = { name: string | null; email: string | null; imageUrl: string | null } | null;
+
+/**
+ * Name over email, and never an empty row: a teacher signed in with Google may
+ * have given neither, and the rail still has to say who this workspace belongs
+ * to. The email moves up to the first line when there is no name, rather than
+ * leaving a placeholder above it.
+ */
+function describeTeacher(teacher: Teacher) {
+  const name = teacher?.name?.trim();
+  const email = teacher?.email?.trim();
+  if (name) return { primary: name, secondary: email ?? null };
+  if (email) return { primary: email, secondary: null };
+  return { primary: "Relay teacher", secondary: "Not signed in" };
+}
+
+function teacherInitials(teacher: Teacher) {
+  const { primary } = describeTeacher(teacher);
+  const words = primary.split(/[\s@._-]+/).filter(Boolean);
+  const initials = words.slice(0, 2).map((word) => word[0] ?? "");
+  return initials.join("").toUpperCase() || "R";
+}
+
+/** The signed-in teacher's picture, falling back to their initials. */
+function TeacherAvatar({ teacher }: { teacher: Teacher }) {
+  const [hasImageFailed, setHasImageFailed] = useState(false);
+  const imageUrl = teacher?.imageUrl;
+
+  if (imageUrl && !hasImageFailed) {
+    return (
+      <img
+        src={imageUrl}
+        alt=""
+        aria-hidden
+        onError={() => setHasImageFailed(true)}
+        className="size-7 shrink-0 rounded-full object-cover ring-1 ring-white/15"
+      />
+    );
+  }
   return (
     <span
       aria-hidden
-      className="relative grid size-7 shrink-0 place-items-center rounded-full bg-white/[0.09] text-[11px] font-semibold text-white/80"
+      className="grid size-7 shrink-0 place-items-center rounded-full bg-white/[0.09] text-[10.5px] font-semibold text-white/80"
     >
-      C
-      <span
-        className={cn(
-          "absolute -right-0.5 -bottom-0.5 size-2.5 rounded-full border-2 border-workspace-sidebar",
-          state === "ready" && "bg-emerald-400",
-          state === "signin" && "bg-amber-400",
-          // Neither ready nor broken: a plain grey, never a see-through white.
-          (state === "checking" || state === "missing") && "bg-workspace-sidebar-icon",
-        )}
-      />
+      {teacherInitials(teacher)}
     </span>
+  );
+}
+
+/**
+ * Whether the local Claude runtime can do any work. Collapsed, it is the dot
+ * alone; expanded, the dot with what it means. It stays a link to Settings,
+ * which is the only place anything about it can be fixed.
+ */
+function ClaudeStatusLine({
+  availability,
+  isSidebarCollapsed,
+}: {
+  availability: ClaudeAvailability | null;
+  isSidebarCollapsed: boolean;
+}) {
+  const state = describeClaudeAvatarState(availability);
+  const label = describeClaudeState(availability);
+  const dot = (
+    <span
+      aria-hidden
+      className={cn(
+        "shrink-0 rounded-full",
+        // On the collapsed rail the dot is the whole message, so it carries a
+        // little more weight than it does beside its own label.
+        isSidebarCollapsed ? "size-2" : "size-1.5",
+        state === "ready" && "bg-emerald-400",
+        state === "signin" && "bg-amber-400",
+        state === "missing" && "bg-rose-400",
+        state === "checking" && "bg-workspace-sidebar-icon",
+      )}
+    />
+  );
+
+  return (
+    <Link
+      to="/settings"
+      title={label}
+      aria-label={label}
+      className={cn(
+        CONTROL_FEEDBACK,
+        "flex min-h-7 items-center gap-2 rounded-lg outline-none hover:bg-white/[0.05] focus-visible:ring-2 focus-visible:ring-white/20",
+        isSidebarCollapsed ? "justify-center px-1" : "px-2.5",
+      )}
+    >
+      {dot}
+      {isSidebarCollapsed ? null : (
+        <span
+          className={cn(
+            "min-w-0 flex-1 truncate text-[11px]",
+            // Only a state the teacher has to act on earns colour.
+            state === "ready" || state === "checking" ? "text-white/40" : "text-amber-300/90",
+          )}
+        >
+          {label}
+        </span>
+      )}
+    </Link>
   );
 }
 

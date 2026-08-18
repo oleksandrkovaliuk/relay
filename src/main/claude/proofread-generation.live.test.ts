@@ -26,9 +26,8 @@ it(
           "B1 learner. Writes 'I have gone to Lisbon last summer' and forgets past perfect for the earlier event.",
         lessonNotes: "We practised travel stories in the past, and correcting our own writing.",
         targetSkills: ["past perfect", "past simple"],
-        durationMinutes: 10,
         difficulty: "intermediate",
-        activityTypes: ["proofread"],
+        activityPlan: [{ type: "proofread", itemCount: 6 }],
       },
       () => undefined,
     );

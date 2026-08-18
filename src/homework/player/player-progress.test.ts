@@ -22,7 +22,7 @@ const QUESTIONS: PlayerQuestion[] = [
     type: "multiple_choice",
     prompt: "Choose one",
     instructions: "Select the best answer.",
-    content: { kind: "multiple_choice", choices: ["One", "Two"] },
+    content: { kind: "multiple_choice", choices: ["One", "Two"], correctChoiceCount: 1 },
     points: 1,
     difficulty: "B1",
   },
@@ -68,8 +68,30 @@ describe("player progress", () => {
       },
     };
 
+    // The step is returned as saved: it counts sections, and only the player
+    // knows how many of those the homework has.
     expect(restoreQuestionState(progress, QUESTIONS)).toEqual({
-      index: 1,
+      index: 8,
+      responses: { "choice-question": { kind: "choice", choiceIndex: 1 } },
+    });
+  });
+
+  /**
+   * A student halfway through a set when the app updated keeps their typing.
+   * Only the position is dropped, because its meaning changed under them.
+   */
+  it("carries answers over from a snapshot written before sections existed", () => {
+    const legacy = {
+      version: 1,
+      session: SESSION,
+      index: 17,
+      responses: { "choice-question": { kind: "choice", choiceIndex: 1 } },
+    };
+
+    expect(parseStoredPlayerProgress(JSON.stringify(legacy))).toEqual({
+      version: PLAYER_STORAGE_VERSION,
+      session: SESSION,
+      index: 0,
       responses: { "choice-question": { kind: "choice", choiceIndex: 1 } },
     });
   });

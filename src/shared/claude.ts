@@ -36,7 +36,7 @@ export const questionContentSchema = z.discriminatedUnion("kind", [
   }),
   z.object({
     kind: z.literal("matching"),
-    pairs: z.array(z.object({ left: nonEmptyString, right: nonEmptyString })).min(2).max(10),
+    pairs: z.array(z.object({ left: nonEmptyString, right: nonEmptyString })).min(2).max(14),
   }),
   z.object({
     kind: z.literal("select_cloze"),
@@ -80,7 +80,7 @@ export const questionContentSchema = z.discriminatedUnion("kind", [
         }),
       )
       .min(2)
-      .max(8),
+      .max(12),
   }),
   z.object({
     kind: z.literal("open_response"),
@@ -105,6 +105,95 @@ export const ACTIVITY_TYPES = [
 ] as const;
 
 export const activityTypeSchema = z.enum(ACTIVITY_TYPES);
+
+/**
+ * How many practice items one activity of each type can carry. A worksheet asks
+ * for "ten sentences of multiple choice", but ten multiple-choice sentences are
+ * ten separate activities while ten cloze gaps are one passage — so a teacher's
+ * item count has to be translated into activities per type rather than taken
+ * literally everywhere.
+ */
+export const ACTIVITY_TYPE_ITEM_PLANS: Record<
+  ActivityType,
+  { itemsPerActivity: number; itemNoun: string }
+> = {
+  multiple_choice: { itemsPerActivity: 1, itemNoun: "question" },
+  fill_blank: { itemsPerActivity: 1, itemNoun: "sentence" },
+  matching: { itemsPerActivity: 8, itemNoun: "pair" },
+  select_cloze: { itemsPerActivity: 8, itemNoun: "gap" },
+  error_fix: { itemsPerActivity: 1, itemNoun: "sentence" },
+  proofread: { itemsPerActivity: 6, itemNoun: "mistake" },
+  short_answer: { itemsPerActivity: 1, itemNoun: "question" },
+  rewrite: { itemsPerActivity: 1, itemNoun: "sentence" },
+};
+
+/** What a teacher gets per activity type unless they change it. */
+export const DEFAULT_ACTIVITY_ITEM_COUNT = 10;
+export const MINIMUM_ACTIVITY_ITEM_COUNT = 3;
+export const MAXIMUM_ACTIVITY_ITEM_COUNT = 20;
+/**
+ * The whole worksheet is written in one structured answer, so its size is bound
+ * by what a single response can carry. Past this the run gets slow and starts
+ * risking a truncated set, which is worse than a smaller one.
+ */
+export const MAXIMUM_PLANNED_ITEMS = 70;
+/** Roughly how long one practice item takes, used only to show an estimate. */
+const MINUTES_PER_ITEM = 0.6;
+
+export const activityPlanEntrySchema = z.object({
+  type: activityTypeSchema,
+  /** Practice items of this type, not activities: see ACTIVITY_TYPE_ITEM_PLANS. */
+  itemCount: z
+    .number()
+    .int()
+    .min(MINIMUM_ACTIVITY_ITEM_COUNT)
+    .max(MAXIMUM_ACTIVITY_ITEM_COUNT),
+});
+
+/**
+ * The teacher now picks the activity types outright, so an empty plan is a brief
+ * with nothing in it rather than an invitation for the generator to choose.
+ */
+export const activityPlanSchema = z
+  .array(activityPlanEntrySchema)
+  .min(1)
+  .max(ACTIVITY_TYPES.length)
+  .refine(
+    (plan) => new Set(plan.map((entry) => entry.type)).size === plan.length,
+    { message: "Each activity type may appear once." },
+  )
+  .refine(
+    (plan) => plan.reduce((total, entry) => total + entry.itemCount, 0) <= MAXIMUM_PLANNED_ITEMS,
+    { message: `One homework can hold at most ${MAXIMUM_PLANNED_ITEMS} practice items.` },
+  );
+
+export type ActivityPlanEntry = z.infer<typeof activityPlanEntrySchema>;
+export type ActivityPlan = z.infer<typeof activityPlanSchema>;
+
+/** One line per requested type: items asked for, and the activities they become. */
+export function describeActivityPlan(plan: ActivityPlan) {
+  return plan.map((entry) => {
+    const { itemsPerActivity, itemNoun } = ACTIVITY_TYPE_ITEM_PLANS[entry.type];
+    return {
+      ...entry,
+      itemsPerActivity,
+      itemNoun,
+      activityCount: Math.ceil(entry.itemCount / itemsPerActivity),
+    };
+  });
+}
+
+export function countPlannedItems(plan: ActivityPlan) {
+  return plan.reduce((total, entry) => total + entry.itemCount, 0);
+}
+
+export function countPlannedActivities(plan: ActivityPlan) {
+  return describeActivityPlan(plan).reduce((total, entry) => total + entry.activityCount, 0);
+}
+
+export function estimatePlanMinutes(plan: ActivityPlan) {
+  return Math.max(5, Math.round(countPlannedItems(plan) * MINUTES_PER_ITEM));
+}
 
 /** The named set an activity belongs to, e.g. "Set two · Type the verb". */
 export const questionSetSchema = z.object({
@@ -173,7 +262,12 @@ export const homeworkDraftSchema = z.object({
   learningObjectives: z.array(nonEmptyString).min(1).max(12),
   /** The collapsible cheat sheet the student can open while working. */
   referenceRules: z.array(referenceRuleSchema).max(12).optional(),
-  questions: z.array(homeworkQuestionSchema).min(1).max(30),
+  /**
+   * A set is now a full worksheet — ten or more items per requested activity
+   * type — so the ceiling is what a document can carry, not what a short list
+   * looks like.
+   */
+  questions: z.array(homeworkQuestionSchema).min(1).max(130),
 });
 
 /**
@@ -229,12 +323,15 @@ export const generateHomeworkInputSchema = z
     studentContext: z.string().max(20_000).optional(),
     recentPerformance: z.string().max(20_000).optional(),
     lessonNotes: z.string().max(100_000),
+    /**
+     * Set when the teacher asked for the board's newest activity to stand in as
+     * the lesson brief. Anything typed in the notes is combined with it.
+     */
     miroBoardUrl: z.string().startsWith("https://miro.com/").optional(),
     targetSkills: z.array(nonEmptyString).max(20),
-    durationMinutes: z.number().int().min(5).max(180),
     difficulty: z.enum(["beginner", "intermediate", "advanced"]),
-    /** Empty means "any" — the generator picks the mix itself. */
-    activityTypes: z.array(activityTypeSchema).max(ACTIVITY_TYPES.length).default([]),
+    /** Which widgets to write, and how many items of each. Never inferred. */
+    activityPlan: activityPlanSchema,
     /** Omitted falls back to the app default rather than the CLI's. */
     model: claudeModelSchema.optional(),
     teachingStyle: teachingStyleSchema.optional(),
@@ -304,7 +401,7 @@ export const summarizeSubmissionInputSchema = z.object({
         revisionCount: z.number(),
       }),
     )
-    .max(40),
+    .max(130),
   model: claudeModelSchema.optional(),
 });
 

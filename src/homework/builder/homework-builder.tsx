@@ -21,7 +21,15 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
-import { ACTIVITY_TYPES, type ActivityType, type ClaudeAvailability } from "@/shared/claude";
+import {
+  ACTIVITY_TYPES,
+  MAXIMUM_ACTIVITY_ITEM_COUNT,
+  MAXIMUM_PLANNED_ITEMS,
+  MINIMUM_ACTIVITY_ITEM_COUNT,
+  type ActivityPlanEntry,
+  type ActivityType,
+  type ClaudeAvailability,
+} from "@/shared/claude";
 
 import { ActivityTypePicker } from "./activity-type-picker";
 import { BuilderPreview } from "./builder-preview";
@@ -32,15 +40,15 @@ type BuilderBriefSnapshot = {
   studentIds: Id<"students">[];
   lessonNotes: string;
   targetSkills: string;
-  durationMinutes: number;
   difficulty: Difficulty;
-  useMiroBoard: boolean;
-  activityTypes: ActivityType[];
+  /** Take the newest activity on the student's board as the lesson brief. */
+  useMiroBrief: boolean;
+  activityPlan: ActivityPlanEntry[];
 };
 
-const BUILDER_STORAGE_KEY = "erm:homework-builder-brief:v1";
+/** Bumped with the shape: a v1 brief has minutes where the plan now lives. */
+const BUILDER_STORAGE_KEY = "erm:homework-builder-brief:v2";
 const MAXIMUM_LESSON_NOTES_LENGTH = 100_000;
-const DEFAULT_DURATION_MINUTES = 15;
 const RECENT_RESULT_COUNT = 3;
 const MAXIMUM_FOCUS_AREAS = 5;
 
@@ -75,10 +83,11 @@ export function HomeworkBuilder({
   const studentId = studentIds.length === 1 ? (studentIds[0] ?? null) : null;
   const [lessonNotes, setLessonNotes] = useState(initialSnapshot.lessonNotes);
   const [targetSkills, setTargetSkills] = useState(initialSnapshot.targetSkills);
-  const [durationMinutes, setDurationMinutes] = useState(initialSnapshot.durationMinutes);
   const [difficulty, setDifficulty] = useState<Difficulty>(initialSnapshot.difficulty);
-  const [useMiroBoard, setUseMiroBoard] = useState(initialSnapshot.useMiroBoard);
-  const [activityTypes, setActivityTypes] = useState<ActivityType[]>(initialSnapshot.activityTypes);
+  const [useMiroBrief, setUseMiroBrief] = useState(initialSnapshot.useMiroBrief);
+  const [activityPlan, setActivityPlan] = useState<ActivityPlanEntry[]>(
+    initialSnapshot.activityPlan,
+  );
   /** Which widget's worked example the preview column is showing, if any. */
   const [previewedActivityType, setPreviewedActivityType] = useState<ActivityType | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -97,25 +106,34 @@ export function HomeworkBuilder({
       studentIds,
       lessonNotes,
       targetSkills,
-      durationMinutes,
       difficulty,
-      useMiroBoard,
-      activityTypes,
+      useMiroBrief,
+      activityPlan,
     });
   }, [
-    activityTypes,
+    activityPlan,
     difficulty,
-    durationMinutes,
     lessonNotes,
     studentIds,
     targetSkills,
-    useMiroBoard,
+    useMiroBrief,
   ]);
 
+  const miroBoardUrl = useMiroBrief ? (student?.miroBoardUrl ?? null) : null;
+  /** Something has to describe the lesson: notes, the board, or saved context. */
+  const hasBriefSource =
+    lessonNotes.trim().length > 0 ||
+    Boolean(miroBoardUrl) ||
+    Boolean(student?.contextNotes.trim());
+  const hasActivityPlan = activityPlan.length > 0;
+  const isPlanTooLarge =
+    activityPlan.reduce((total, entry) => total + entry.itemCount, 0) > MAXIMUM_PLANNED_ITEMS;
   const canGenerate =
     Boolean(availability?.isAuthenticated) &&
     !isSubmitting &&
-    (lessonNotes.trim().length > 0 || Boolean(student?.contextNotes.trim()));
+    hasBriefSource &&
+    hasActivityPlan &&
+    !isPlanTooLarge;
 
   /**
    * Starts the run and leaves. Generation takes minutes and now lives above the
@@ -133,11 +151,10 @@ export function HomeworkBuilder({
           ...(student ? { studentName: student.name, studentContext: student.contextNotes } : {}),
           ...(recentPerformance ? { recentPerformance } : {}),
           lessonNotes,
-          ...(useMiroBoard && student?.miroBoardUrl ? { miroBoardUrl: student.miroBoardUrl } : {}),
+          ...(miroBoardUrl ? { miroBoardUrl } : {}),
           targetSkills: parseSkills(targetSkills),
-          durationMinutes,
           difficulty,
-          activityTypes,
+          activityPlan,
         },
         {
           title: student ? `Homework for ${student.name}` : "Homework",
@@ -176,13 +193,36 @@ export function HomeworkBuilder({
         <div className="panel divide-y divide-border/70 overflow-hidden">
           <BriefRow
             title="Students"
-            description="Optional. One student adds their saved context and recent work; several keeps the set reusable and assigns it to all of them."
+            description="Optional. Several assignees keep the set reusable and send it to all of them."
           >
             <StudentMultiPicker
               students={students ?? []}
               value={studentIds}
               onValueChange={setStudentIds}
             />
+            {/* The effect of picking a student is the least obvious thing on this
+                page, and it changes every activity that gets written. */}
+            <p className="mt-2 text-pretty text-[12.5px] leading-5 text-muted-foreground">
+              {student ? (
+                <>
+                  <span className="font-medium text-foreground">
+                    This homework is written around {student.name}.
+                  </span>{" "}
+                  Their saved context and recent results shape what each activity targets.
+                  The set stays reusable — nothing names them.
+                </>
+              ) : studentIds.length > 1 ? (
+                <>
+                  <span className="font-medium text-foreground">
+                    Written for {studentIds.length} students.
+                  </span>{" "}
+                  With more than one assignee the set stands on its own, so no personal
+                  context is used.
+                </>
+              ) : (
+                "Pick one student and the homework is generated from their saved context and recent results. Pick several, or none, and it is written from the lesson brief alone."
+              )}
+            </p>
             {student ? (
               <StudentContextDisclosure
                 key={student._id}
@@ -195,11 +235,21 @@ export function HomeworkBuilder({
           </BriefRow>
 
           <BriefRow
-            title="Lesson notes"
-            description="Write naturally — topics covered, examples used, and where the learner got stuck."
+            title="Lesson brief"
+            description="What the homework is about — the lesson itself, and where the learner got stuck."
           >
-            <Field>
-              <FieldLabel htmlFor="builder-lesson-notes">Lesson brief</FieldLabel>
+            {student?.miroBoardUrl ? (
+              <MiroBriefToggle
+                studentName={student.name}
+                miroBoardUrl={student.miroBoardUrl}
+                isEnabled={useMiroBrief}
+                onEnabledChange={setUseMiroBrief}
+              />
+            ) : null}
+            <Field className={student?.miroBoardUrl ? "mt-4" : undefined}>
+              <FieldLabel htmlFor="builder-lesson-notes">
+                {useMiroBrief && student?.miroBoardUrl ? "Extra details" : "Lesson notes"}
+              </FieldLabel>
               <Textarea
                 id="builder-lesson-notes"
                 rows={6}
@@ -207,7 +257,11 @@ export function HomeworkBuilder({
                 data-builder-control="lesson-notes"
                 value={lessonNotes}
                 onChange={(event) => setLessonNotes(event.target.value)}
-                placeholder="We practised travel stories and the past perfect. New words: platform, delayed, luggage. Mira keeps using the past simple for the earlier event."
+                placeholder={
+                  useMiroBrief && student?.miroBoardUrl
+                    ? "Anything the board does not say — where they hesitated, what to push harder on. This wins where it disagrees with the board."
+                    : "We practised travel stories and the past perfect. New words: platform, delayed, luggage. Mira keeps using the past simple for the earlier event."
+                }
                 className="min-h-32 text-[13.5px]"
               />
               <FieldDescription className="text-right numeric">
@@ -229,76 +283,38 @@ export function HomeworkBuilder({
             />
           </BriefRow>
 
-          <BriefRow
-            title="Assignment shape"
-            description="Set a realistic length and level for this learner."
-          >
-            <div className="grid gap-4 sm:grid-cols-2">
-              <Field>
-                <FieldLabel htmlFor="builder-duration">Target length</FieldLabel>
-                <div className="relative">
-                  <Input
-                    id="builder-duration"
-                    type="number"
-                    min={5}
-                    max={180}
-                    value={durationMinutes}
-                    onChange={(event) =>
-                      setDurationMinutes(event.target.valueAsNumber || DEFAULT_DURATION_MINUTES)
-                    }
-                    className="pr-12"
-                  />
-                  <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-[12px] text-muted-foreground">
-                    min
-                  </span>
-                </div>
-              </Field>
-              <Field>
-                <FieldLabel htmlFor="builder-difficulty">Difficulty</FieldLabel>
-                <NativeSelect
-                  id="builder-difficulty"
-                  value={difficulty}
-                  onChange={(event) => setDifficulty(event.target.value as Difficulty)}
-                >
-                  <NativeSelectOption value="beginner">Beginner</NativeSelectOption>
-                  <NativeSelectOption value="intermediate">Intermediate</NativeSelectOption>
-                  <NativeSelectOption value="advanced">Advanced</NativeSelectOption>
-                </NativeSelect>
-              </Field>
-            </div>
+          <BriefRow title="Difficulty" description="The level the activities are written at.">
+            <Field>
+              <FieldLabel htmlFor="builder-difficulty" className="sr-only">
+                Difficulty
+              </FieldLabel>
+              <NativeSelect
+                id="builder-difficulty"
+                value={difficulty}
+                onChange={(event) => setDifficulty(event.target.value as Difficulty)}
+                className="sm:max-w-xs"
+              >
+                <NativeSelectOption value="beginner">Beginner</NativeSelectOption>
+                <NativeSelectOption value="intermediate">Intermediate</NativeSelectOption>
+                <NativeSelectOption value="advanced">Advanced</NativeSelectOption>
+              </NativeSelect>
+            </Field>
           </BriefRow>
 
           {/* The widget cards need the full column width: beside a label they
               wrap to two words a line. */}
           <BriefRow
             isStacked
-            title="Activity types"
-            description="Optional. Pin the homework to specific widgets, or leave blank for a varied mix."
+            title="Activity types and length"
+            description={`Required. Only the types you pick are generated — nothing is invented around them. ${MINIMUM_ACTIVITY_ITEM_COUNT}–${MAXIMUM_ACTIVITY_ITEM_COUNT} items each; the length of the homework is what you ask for here.`}
           >
             <ActivityTypePicker
-              selected={activityTypes}
-              onChange={setActivityTypes}
+              plan={activityPlan}
+              onChange={setActivityPlan}
               previewed={previewedActivityType}
               onPreview={setPreviewedActivityType}
             />
           </BriefRow>
-
-          {student?.miroBoardUrl ? (
-            <div className="flex items-center justify-between gap-6 px-5 py-4 xl:px-6">
-              <div className="min-w-0">
-                <FieldTitle>Use the current Miro board</FieldTitle>
-                <p className="mt-1 text-pretty text-[13px] leading-5 text-muted-foreground">
-                  Include relevant board context in this generation.
-                </p>
-              </div>
-              <Switch
-                checked={useMiroBoard}
-                onCheckedChange={setUseMiroBoard}
-                aria-label="Include the current Miro board"
-                className="shrink-0"
-              />
-            </div>
-          ) : null}
         </div>
 
         {error ? (
@@ -324,9 +340,15 @@ export function HomeworkBuilder({
           >
             {availability === null
               ? "Checking the local Claude runtime…"
-              : availability.isAuthenticated
-                ? "Nothing is shared until you review and publish."
-                : (availability.problem ?? "Claude is unavailable.")}
+              : !availability.isAuthenticated
+                ? (availability.problem ?? "Claude is unavailable.")
+                : !hasActivityPlan
+                  ? "Choose the activity types this homework should contain."
+                  : isPlanTooLarge
+                    ? `One homework holds at most ${MAXIMUM_PLANNED_ITEMS} practice items. Trim the counts, or split this into two sets.`
+                    : !hasBriefSource
+                      ? "Add a lesson brief, or pick a student whose saved context can stand in for one."
+                      : "Nothing is shared until you review and publish."}
           </p>
           {availability !== null && !availability.isAuthenticated && onOpenClaudeSetup ? (
             <Button variant="outline" onClick={onOpenClaudeSetup}>
@@ -340,7 +362,7 @@ export function HomeworkBuilder({
         studentName={student?.name ?? null}
         lessonNotes={lessonNotes}
         targetSkills={targetSkills}
-        durationMinutes={durationMinutes}
+        activityPlan={activityPlan}
         difficulty={difficulty}
         isGenerating={isSubmitting}
         previewedActivityType={previewedActivityType}
@@ -378,6 +400,56 @@ function BriefRow({
         </p>
       </div>
       <div className="min-w-0">{children}</div>
+    </div>
+  );
+}
+
+/**
+ * The board as the brief. A teacher who ran the lesson on Miro has already
+ * written the lesson down there; retyping it into a notes box is the same work
+ * twice. The newest frame is the lesson they just taught, so that is what is
+ * read — and anything typed below still wins over it.
+ */
+function MiroBriefToggle({
+  studentName,
+  miroBoardUrl,
+  isEnabled,
+  onEnabledChange,
+}: {
+  studentName: string;
+  miroBoardUrl: string;
+  isEnabled: boolean;
+  onEnabledChange: (isEnabled: boolean) => void;
+}) {
+  return (
+    <div
+      className={cn(
+        "flex items-start justify-between gap-5 rounded-xl border px-4 py-3.5 transition-colors duration-150",
+        isEnabled ? "border-primary/45 bg-primary-soft/50" : "border-border bg-card",
+      )}
+    >
+      <div className="min-w-0">
+        <FieldTitle>Use the latest Miro activity as the brief</FieldTitle>
+        <p className="mt-1 text-pretty text-[12.5px] leading-5 text-muted-foreground">
+          Reads {studentName}&rsquo;s board and takes the most recently created frame as the
+          lesson: its topic, examples and vocabulary.{" "}
+          <a
+            href={miroBoardUrl}
+            target="_blank"
+            rel="noreferrer"
+            className="font-medium text-primary hover:underline"
+          >
+            Open the board
+            <ExternalLink size={11} className="ml-1 inline align-[-1px]" aria-hidden />
+          </a>
+        </p>
+      </div>
+      <Switch
+        checked={isEnabled}
+        onCheckedChange={onEnabledChange}
+        aria-label="Use the latest Miro activity as the lesson brief"
+        className="mt-0.5 shrink-0"
+      />
     </div>
   );
 }
@@ -480,10 +552,9 @@ function createEmptyBuilderSnapshot(): BuilderBriefSnapshot {
     studentIds: [],
     lessonNotes: "",
     targetSkills: "",
-    durationMinutes: DEFAULT_DURATION_MINUTES,
     difficulty: "intermediate",
-    useMiroBoard: false,
-    activityTypes: [],
+    useMiroBrief: false,
+    activityPlan: [],
   };
 }
 
@@ -513,19 +584,26 @@ function isBuilderSnapshot(value: unknown): value is BuilderBriefSnapshot {
   const hasStudentIds =
     Array.isArray(candidate.studentIds) &&
     candidate.studentIds.every((studentId) => typeof studentId === "string");
-  const hasActivityTypes =
-    Array.isArray(candidate.activityTypes) &&
-    candidate.activityTypes.every((value) =>
-      ACTIVITY_TYPES.some((activityType) => activityType === value),
-    );
+  const hasActivityPlan =
+    Array.isArray(candidate.activityPlan) && candidate.activityPlan.every(isActivityPlanEntry);
   return (
     hasStudentIds &&
-    hasActivityTypes &&
+    hasActivityPlan &&
     typeof candidate.lessonNotes === "string" &&
     typeof candidate.targetSkills === "string" &&
-    typeof candidate.durationMinutes === "number" &&
-    Number.isFinite(candidate.durationMinutes) &&
     isDifficulty &&
-    typeof candidate.useMiroBoard === "boolean"
+    typeof candidate.useMiroBrief === "boolean"
+  );
+}
+
+function isActivityPlanEntry(value: unknown): value is ActivityPlanEntry {
+  if (typeof value !== "object" || value === null) return false;
+  const candidate = value as Record<string, unknown>;
+  return (
+    ACTIVITY_TYPES.some((activityType) => activityType === candidate.type) &&
+    typeof candidate.itemCount === "number" &&
+    Number.isInteger(candidate.itemCount) &&
+    candidate.itemCount >= MINIMUM_ACTIVITY_ITEM_COUNT &&
+    candidate.itemCount <= MAXIMUM_ACTIVITY_ITEM_COUNT
   );
 }

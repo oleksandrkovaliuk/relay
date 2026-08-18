@@ -46,26 +46,42 @@ export const referenceRuleValidator = v.object({
 });
 
 export default defineSchema({
+  users: defineTable({
+    tokenIdentifier: v.string(),
+    subject: v.string(),
+    email: v.optional(v.string()),
+    name: v.optional(v.string()),
+    pictureUrl: v.optional(v.string()),
+    createdAt: v.number(),
+    lastSeenAt: v.number(),
+  }).index("by_tokenIdentifier", ["tokenIdentifier"]),
+
   /**
    * How this teacher wants homework written, in their own words. One row: Relay
    * is a single teacher's workspace, and this is the part of their taste no
    * amount of reading their past sets can infer.
    */
   teacherProfile: defineTable({
+    ownerId: v.optional(v.id("users")),
     styleNotes: v.string(),
     updatedAt: v.number(),
-  }),
+  }).index("by_ownerId", ["ownerId"]),
 
   students: defineTable({
+    ownerId: v.optional(v.id("users")),
     name: v.string(),
     email: v.optional(v.string()),
     miroBoardUrl: v.optional(v.string()),
     contextNotes: v.string(),
     status: v.union(v.literal("active"), v.literal("archived")),
     createdAt: v.number(),
-  }).index("by_status_and_createdAt", ["status", "createdAt"]),
+  })
+    .index("by_status_and_createdAt", ["status", "createdAt"])
+    .index("by_ownerId", ["ownerId"])
+    .index("by_ownerId_and_status_and_createdAt", ["ownerId", "status", "createdAt"]),
 
   aiJobs: defineTable({
+    ownerId: v.optional(v.id("users")),
     requestId: v.string(),
     /** Editing one activity is the same kind of long-running Claude work. */
     kind: v.union(v.literal("homework_generation"), v.literal("question_rewrite")),
@@ -100,9 +116,13 @@ export default defineSchema({
     activityCount: v.optional(v.number()),
   })
     .index("by_requestId", ["requestId"])
-    .index("by_status_and_createdAt", ["status", "createdAt"]),
+    .index("by_ownerId_and_requestId", ["ownerId", "requestId"])
+    .index("by_status_and_createdAt", ["status", "createdAt"])
+    .index("by_ownerId", ["ownerId"])
+    .index("by_ownerId_and_status_and_createdAt", ["ownerId", "status", "createdAt"]),
 
   homeworkDrafts: defineTable({
+    ownerId: v.optional(v.id("users")),
     aiJobId: v.id("aiJobs"),
     studentId: v.optional(v.id("students")),
     title: v.string(),
@@ -110,16 +130,28 @@ export default defineSchema({
     estimatedMinutes: v.number(),
     learningObjectives: v.array(v.string()),
     referenceRules: v.optional(v.array(referenceRuleValidator)),
+    /**
+     * Whether the student may mark one section before moving on. Absent means
+     * yes: a set written before the setting existed still allows it.
+     */
+    selfCheckEnabled: v.optional(v.boolean()),
     status: v.literal("review_required"),
     createdAt: v.number(),
-  }).index("by_aiJobId", ["aiJobId"]),
+  })
+    .index("by_aiJobId", ["aiJobId"])
+    .index("by_ownerId", ["ownerId"])
+    .index("by_ownerId_and_createdAt", ["ownerId", "createdAt"]),
 
   homeworkQuestions: defineTable({
+    ownerId: v.optional(v.id("users")),
     homeworkDraftId: v.id("homeworkDrafts"),
     ...questionFields,
-  }).index("by_homeworkDraftId_and_order", ["homeworkDraftId", "order"]),
+  })
+    .index("by_homeworkDraftId_and_order", ["homeworkDraftId", "order"])
+    .index("by_ownerId", ["ownerId"]),
 
   assignments: defineTable({
+    ownerId: v.optional(v.id("users")),
     homeworkDraftId: v.id("homeworkDrafts"),
     studentId: v.optional(v.id("students")),
     title: v.string(),
@@ -127,6 +159,8 @@ export default defineSchema({
     estimatedMinutes: v.number(),
     learningObjectives: v.array(v.string()),
     referenceRules: v.optional(v.array(referenceRuleValidator)),
+    /** Mirrors the draft's setting, and stays editable after publishing. */
+    selfCheckEnabled: v.optional(v.boolean()),
     shareToken: v.string(),
     status: v.union(v.literal("published"), v.literal("closed")),
     publishedAt: v.number(),
@@ -134,22 +168,30 @@ export default defineSchema({
   })
     .index("by_homeworkDraftId", ["homeworkDraftId"])
     .index("by_shareToken", ["shareToken"])
-    .index("by_status_and_publishedAt", ["status", "publishedAt"]),
+    .index("by_status_and_publishedAt", ["status", "publishedAt"])
+    .index("by_ownerId", ["ownerId"])
+    .index("by_ownerId_and_status_and_publishedAt", ["ownerId", "status", "publishedAt"]),
 
   assignmentStudents: defineTable({
+    ownerId: v.optional(v.id("users")),
     assignmentId: v.id("assignments"),
     studentId: v.id("students"),
     createdAt: v.number(),
   })
     .index("by_assignmentId_and_studentId", ["assignmentId", "studentId"])
-    .index("by_studentId_and_assignmentId", ["studentId", "assignmentId"]),
+    .index("by_studentId_and_assignmentId", ["studentId", "assignmentId"])
+    .index("by_ownerId", ["ownerId"]),
 
   assignmentQuestions: defineTable({
+    ownerId: v.optional(v.id("users")),
     assignmentId: v.id("assignments"),
     ...questionFields,
-  }).index("by_assignmentId_and_order", ["assignmentId", "order"]),
+  })
+    .index("by_assignmentId_and_order", ["assignmentId", "order"])
+    .index("by_ownerId", ["ownerId"]),
 
   submissions: defineTable({
+    ownerId: v.optional(v.id("users")),
     assignmentId: v.id("assignments"),
     studentId: v.optional(v.id("students")),
     studentName: v.string(),
@@ -167,9 +209,13 @@ export default defineSchema({
     .index("by_assignmentId_and_startedAt", ["assignmentId", "startedAt"])
     .index("by_resumeToken", ["resumeToken"])
     .index("by_studentId_and_startedAt", ["studentId", "startedAt"])
-    .index("by_status_and_submittedAt", ["status", "submittedAt"]),
+    .index("by_status_and_submittedAt", ["status", "submittedAt"])
+    .index("by_ownerId", ["ownerId"])
+    .index("by_ownerId_and_status_and_submittedAt", ["ownerId", "status", "submittedAt"])
+    .index("by_ownerId_and_startedAt", ["ownerId", "startedAt"]),
 
   submissionFeedback: defineTable({
+    ownerId: v.optional(v.id("users")),
     submissionId: v.id("submissions"),
     assignmentId: v.id("assignments"),
     rating: v.number(),
@@ -178,9 +224,11 @@ export default defineSchema({
     updatedAt: v.number(),
   })
     .index("by_submissionId", ["submissionId"])
-    .index("by_assignmentId_and_updatedAt", ["assignmentId", "updatedAt"]),
+    .index("by_assignmentId_and_updatedAt", ["assignmentId", "updatedAt"])
+    .index("by_ownerId", ["ownerId"]),
 
   answers: defineTable({
+    ownerId: v.optional(v.id("users")),
     submissionId: v.id("submissions"),
     questionId: v.id("assignmentQuestions"),
     response: answerResponseValidator,
@@ -192,5 +240,6 @@ export default defineSchema({
     answeredAt: v.number(),
   })
     .index("by_submissionId_and_questionId", ["submissionId", "questionId"])
-    .index("by_submissionId", ["submissionId"]),
+    .index("by_submissionId", ["submissionId"])
+    .index("by_ownerId", ["ownerId"]),
 });

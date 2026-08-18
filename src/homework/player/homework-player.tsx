@@ -1,4 +1,4 @@
-import { useMutation } from "convex/react";
+import { useConvex, useMutation } from "convex/react";
 import { useQuery } from "convex-helpers/react/cache";
 import {
   ArrowLeft,
@@ -6,6 +6,7 @@ import {
   CalendarDays,
   Check,
   Clock3,
+  ListChecks,
   Send,
   Star,
 } from "lucide-react";
@@ -21,10 +22,13 @@ import { cn } from "@/lib/utils";
 import { HomeworkGlyph } from "@/homework/homework-glyph";
 import {
   emptyResponse,
+  groupQuestionsIntoSections,
   hasAnyAnswer,
   isAnswerComplete,
   type AnswerResponse,
   type PlayerQuestion,
+  type QuestionSection,
+  type WidgetMarking,
 } from "./answer-types";
 import { Confetti, pickCelebrationEmoji } from "./confetti";
 import { HomeworkReview, ReviewTotal } from "./homework-review";
@@ -163,6 +167,7 @@ function HomeworkPlayerContent({ shareToken }: { shareToken: string }) {
           estimatedMinutes={assignment.estimatedMinutes}
           dueAt={assignment.dueAt}
           questionCount={assignment.questions.length}
+          sectionCount={groupQuestionsIntoSections(assignment.questions).length}
           learningObjectives={assignment.learningObjectives}
           referenceRules={assignment.referenceRules}
           knownStudentName={assignment.studentName}
@@ -177,6 +182,7 @@ function HomeworkPlayerContent({ shareToken }: { shareToken: string }) {
       <QuestionRunner
         questions={assignment.questions}
         referenceRules={assignment.referenceRules}
+        isSelfCheckEnabled={assignment.selfCheckEnabled}
         session={session}
         shareToken={shareToken}
         initialProgress={storedProgress}
@@ -209,6 +215,7 @@ function IntroPanel({
   estimatedMinutes,
   dueAt,
   questionCount,
+  sectionCount,
   learningObjectives,
   referenceRules,
   knownStudentName,
@@ -220,6 +227,7 @@ function IntroPanel({
   estimatedMinutes: number;
   dueAt?: number;
   questionCount: number;
+  sectionCount: number;
   learningObjectives: string[];
   referenceRules: ReferenceRule[];
   knownStudentName: string | null;
@@ -274,6 +282,9 @@ function IntroPanel({
       ) : null}
 
       <div className="mt-5 flex flex-wrap items-center justify-center gap-1.5">
+        <IntroFact>
+          {sectionCount} {sectionCount === 1 ? "section" : "sections"}
+        </IntroFact>
         <IntroFact>
           {questionCount} {questionCount === 1 ? "activity" : "activities"}
         </IntroFact>
@@ -372,9 +383,16 @@ function formatDueDate(timestamp: number) {
   return new Intl.DateTimeFormat(undefined, { day: "numeric", month: "short" }).format(timestamp);
 }
 
+/**
+ * One section per screen, every activity in it answered in place. A worksheet
+ * section is ten items of one kind now, and walking those as ten separate steps
+ * hid the shape of the practice: the student could not see the sentences they
+ * had already done, and there was nothing to check until the whole set was in.
+ */
 function QuestionRunner({
   questions,
   referenceRules,
+  isSelfCheckEnabled,
   session,
   shareToken,
   initialProgress,
@@ -383,21 +401,35 @@ function QuestionRunner({
 }: {
   questions: PlayerQuestion[];
   referenceRules: ReferenceRule[];
+  isSelfCheckEnabled: boolean;
   session: PlayerSession;
   shareToken: string;
   initialProgress: StoredPlayerProgress | null;
   onFinished: (result: PlayerResult) => void;
   onRestart: () => void;
 }) {
-  const saveAnswer = useMutation(api.submissions.saveAnswer);
+  const convex = useConvex();
+  const saveSectionAnswers = useMutation(api.submissions.saveSectionAnswers);
   const submit = useMutation(api.submissions.submit);
+  const sections = groupQuestionsIntoSections(questions);
   const restoredQuestionState = restoreQuestionState(initialProgress, questions);
-  const [index, setIndex] = useState(restoredQuestionState.index);
+  const [index, setIndex] = useState(() =>
+    Math.min(restoredQuestionState.index, Math.max(0, sections.length - 1)),
+  );
   const [responses, setResponses] = useState(restoredQuestionState.responses);
+  const [checksBySection, setChecksBySection] = useState<Record<string, SectionCheck>>({});
   const [isSaving, setIsSaving] = useState(false);
+  const [isChecking, setIsChecking] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const savedTelemetry = useRef(new Map<string, QuestionTelemetry>());
   const savedQuestions = useRef(new Set<string>());
+  /** Edits per activity, so one busy item does not inflate its neighbours. */
+  const revisionCounts = useRef(new Map<string, number>());
+  /** How much of this section's measured time has already been written down. */
+  const bankedForSection = useRef({ key: "", activeMs: 0, lookupCount: 0 });
+
+  const section = sections[Math.min(index, sections.length - 1)] as QuestionSection<PlayerQuestion>;
+  const { countRevision, readTelemetry } = useQuestionTelemetry(section.key);
 
   useLayoutEffect(function persistProgressForResume() {
     writeStoredPlayerProgress(shareToken, {
@@ -408,60 +440,126 @@ function QuestionRunner({
     });
   }, [index, responses, session, shareToken]);
 
-  const question = questions[Math.min(index, questions.length - 1)] as PlayerQuestion;
-  const { countRevision, readTelemetry } = useQuestionTelemetry(question._id);
-  const response = responses[question._id] ?? emptyResponse(question.content);
-  const isLastQuestion = index === questions.length - 1;
-  const answeredSteps = questions.map((candidate) => {
-    const saved = responses[candidate._id];
-    return saved ? isAnswerComplete(saved) : false;
-  });
-  const unansweredSteps = answeredSteps.flatMap((isAnswered, stepIndex) =>
-    isAnswered ? [] : [stepIndex + 1],
+  const isLastSection = index === sections.length - 1;
+  const answeredSections = sections.map((candidate) =>
+    candidate.questions.every((question) => {
+      const saved = responses[question._id];
+      return saved ? isAnswerComplete(saved, question.content) : false;
+    }),
   );
-  const isCurrentAnswerComplete = isAnswerComplete(response);
+  /** Answered activities in the section on screen, for its own progress line. */
+  const answeredInSection = section.questions.filter((question) => {
+    const saved = responses[question._id];
+    return saved ? isAnswerComplete(saved, question.content) : false;
+  }).length;
+  const hasAnythingToCheck = section.questions.some((question) =>
+    hasAnyAnswer(responseFor(question)),
+  );
+  const openSections = answeredSections.flatMap((isAnswered, sectionIndex) =>
+    isAnswered ? [] : [sectionIndex + 1],
+  );
+  const isSectionComplete = answeredSections[index] ?? false;
+  const isSectionCheckable = section.questions.some(
+    (question) => question.content.kind !== "open_response",
+  );
+  const check = checksBySection[section.key];
 
-  function updateResponse(next: AnswerResponse) {
-    countRevision();
-    setResponses((current) => ({ ...current, [question._id]: next }));
+  function responseFor(question: PlayerQuestion) {
+    return responses[question._id] ?? emptyResponse(question.content);
   }
 
-  function accumulateTelemetry(): QuestionTelemetry {
-    const previous = savedTelemetry.current.get(question._id) ?? EMPTY_TELEMETRY;
-    const current = readTelemetry();
-    const total = {
-      activeMs: previous.activeMs + current.activeMs,
-      lookupCount: previous.lookupCount + current.lookupCount,
-      revisionCount: previous.revisionCount + current.revisionCount,
-    };
-    savedTelemetry.current.set(question._id, total);
-    return total;
+  function updateResponse(question: PlayerQuestion, next: AnswerResponse) {
+    countRevision();
+    revisionCounts.current.set(
+      question._id,
+      (revisionCounts.current.get(question._id) ?? 0) + 1,
+    );
+    setResponses((current) => ({ ...current, [question._id]: next }));
+    // A reworked answer must lose the verdict it was given, or the student is
+    // reading a mark that belongs to what they just replaced.
+    setChecksBySection((current) => {
+      const existing = current[section.key];
+      if (!existing || !existing.items[question._id]) return current;
+      const { [question._id]: _reworked, ...items } = existing.items;
+      return { ...current, [section.key]: { ...existing, items, isStale: true } };
+    });
   }
 
   /**
-   * A skipped step has nothing to send, so it stays absent server-side and the
-   * student can come back to it. Once something has been sent, later edits —
-   * including clearing the answer — are always sent too.
+   * The section is what was measured — the student moved between its activities
+   * freely — so its engaged time and tab-aways are shared out across the
+   * activities that were actually answered, while edits stay where they happened.
+   *
+   * Only what has not been banked yet is shared out: a section is saved every
+   * time it is checked as well as when it is left, and counting the same minute
+   * once per check would make a carefully reworked section look like an hour.
    */
-  async function persistCurrentAnswer() {
-    if (!hasAnyAnswer(response) && !savedQuestions.current.has(question._id)) return;
-    await saveAnswer({
-      submissionId: session.submissionId,
-      resumeToken: session.resumeToken,
-      questionId: question._id as Id<"assignmentQuestions">,
-      response,
-      stats: accumulateTelemetry(),
+  function accumulateTelemetry(answeredQuestionIds: string[]): Map<string, QuestionTelemetry> {
+    const measured = readTelemetry();
+    if (bankedForSection.current.key !== section.key) {
+      bankedForSection.current = { key: section.key, activeMs: 0, lookupCount: 0 };
+    }
+    const newActiveMs = Math.max(0, measured.activeMs - bankedForSection.current.activeMs);
+    const newLookupCount = Math.max(
+      0,
+      measured.lookupCount - bankedForSection.current.lookupCount,
+    );
+    bankedForSection.current = {
+      key: section.key,
+      activeMs: measured.activeMs,
+      lookupCount: measured.lookupCount,
+    };
+
+    const shareCount = Math.max(1, answeredQuestionIds.length);
+    const totals = new Map<string, QuestionTelemetry>();
+    answeredQuestionIds.forEach((questionId, position) => {
+      const previous = savedTelemetry.current.get(questionId) ?? EMPTY_TELEMETRY;
+      const remainder = position === 0 ? newActiveMs % shareCount : 0;
+      const lookupRemainder = position === 0 ? newLookupCount % shareCount : 0;
+      const total = {
+        activeMs: previous.activeMs + Math.floor(newActiveMs / shareCount) + remainder,
+        lookupCount:
+          previous.lookupCount + Math.floor(newLookupCount / shareCount) + lookupRemainder,
+        revisionCount: revisionCounts.current.get(questionId) ?? previous.revisionCount,
+      };
+      savedTelemetry.current.set(questionId, total);
+      totals.set(questionId, total);
     });
-    savedQuestions.current.add(question._id);
+    return totals;
   }
 
-  async function goToStep(step: number) {
-    const nextIndex = clampStep(step, questions.length) - 1;
+  /**
+   * A skipped activity has nothing to send, so it stays absent server-side and
+   * the student can come back to it. Once something has been sent, later edits —
+   * including clearing the answer — are always sent too.
+   */
+  async function persistSectionAnswers() {
+    const pending = section.questions.filter(
+      (question) =>
+        hasAnyAnswer(responseFor(question)) || savedQuestions.current.has(question._id),
+    );
+    if (pending.length === 0) return;
+    const telemetry = accumulateTelemetry(pending.map((question) => question._id));
+    // One transaction for the section: either the screen is saved or it is not.
+    await saveSectionAnswers({
+      submissionId: session.submissionId,
+      resumeToken: session.resumeToken,
+      answers: pending.map((question) => ({
+        questionId: question._id as Id<"assignmentQuestions">,
+        response: responseFor(question),
+        stats: telemetry.get(question._id) ?? EMPTY_TELEMETRY,
+      })),
+    });
+    for (const question of pending) savedQuestions.current.add(question._id);
+  }
+
+  async function goToSection(step: number) {
+    const nextIndex = clampStep(step, sections.length) - 1;
     if (nextIndex === index) return;
     setIsSaving(true);
     setError(null);
     try {
-      await persistCurrentAnswer();
+      await persistSectionAnswers();
       setIndex(nextIndex);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Could not save your answer.");
@@ -470,11 +568,50 @@ function QuestionRunner({
     }
   }
 
+  /**
+   * Marks this section without submitting anything: the server grades what has
+   * been saved and returns verdicts only, so the student can see which of their
+   * own answers are wrong and rework them before moving on.
+   */
+  async function checkSection() {
+    setIsChecking(true);
+    setError(null);
+    try {
+      await persistSectionAnswers();
+      const result = await convex.query(api.submissions.checkSection, {
+        submissionId: session.submissionId,
+        resumeToken: session.resumeToken,
+        questionIds: section.questions.map((question) => question._id as Id<"assignmentQuestions">),
+      });
+      if (!result) throw new Error("This homework session is no longer available.");
+      setChecksBySection((current) => ({
+        ...current,
+        [section.key]: {
+          score: result.score,
+          maxScore: result.maxScore,
+          correctCount: result.correctCount,
+          gradedCount: result.gradedCount,
+          isStale: false,
+          items: Object.fromEntries(
+            result.items.map((item) => [
+              item.questionId,
+              { status: item.status, parts: item.parts },
+            ]),
+          ),
+        },
+      }));
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Could not check this section.");
+    } finally {
+      setIsChecking(false);
+    }
+  }
+
   async function submitHomework() {
     setIsSaving(true);
     setError(null);
     try {
-      await persistCurrentAnswer();
+      await persistSectionAnswers();
       onFinished(
         await submit({
           submissionId: session.submissionId,
@@ -488,32 +625,33 @@ function QuestionRunner({
     }
   }
 
+  const isBusy = isSaving || isChecking;
+
   return (
     <HomeworkWizard
-      key={question._id}
+      key={section.key}
       currentStep={index + 1}
-      totalSteps={questions.length}
-      /* The set is the student's bearing — which part of the worksheet this is —
-         so it outranks the widget's own type name. */
-      eyebrow={question.set?.title ?? question.type.replaceAll("_", " ")}
-      /* No score while the student is working: points would turn every step into
-         a running tally. They are shown once, with the reasons, at the end. */
-      prompt={
-        <PromptContent prompt={question.prompt} size="lg" className="mt-2.5" />
-      }
-      instructions={question.set?.task ?? question.instructions}
-      answeredSteps={answeredSteps}
-      onSelectStep={(step) => void goToStep(step)}
+      totalSteps={sections.length}
+      stepNoun="Section"
+      /* A ten-activity screen needs its own progress: the rail counts sections,
+         and inside one there was nothing saying how far through it you were. */
+      eyebrow={`${answeredInSection} of ${section.questions.length} answered`}
+      /* No score while the student is working: points would turn every section
+         into a running tally. They are shown once, with the reasons, at the end. */
+      prompt={<PromptContent prompt={section.title} size="lg" className="mt-2.5" />}
+      instructions={section.task}
+      answeredSteps={answeredSections}
+      onSelectStep={(step) => void goToSection(step)}
+      /* The cheat sheet belongs where the student lands, above the work. */
+      aside={referenceRules.length > 0 ? <ReferenceRules rules={referenceRules} /> : null}
       supplement={
         <>
-          {referenceRules.length > 0 ? (
-            <ReferenceRules className="mt-7" rules={referenceRules} />
-          ) : null}
-          {isLastQuestion && unansweredSteps.length > 0 ? (
-            <SkippedStepsNotice
-              steps={unansweredSteps}
-              isBusy={isSaving}
-              onGoToStep={(step) => void goToStep(step)}
+          {check ? <SectionCheckSummary check={check} /> : null}
+          {isLastSection && openSections.length > 0 ? (
+            <SkippedSectionsNotice
+              sections={openSections}
+              isBusy={isBusy}
+              onGoToSection={(step) => void goToSection(step)}
             />
           ) : null}
           {error ? (
@@ -537,65 +675,227 @@ function QuestionRunner({
         <Button
           variant="ghost"
           size="xl"
-          disabled={index === 0 || isSaving}
-          onClick={() => void goToStep(index)}
+          disabled={index === 0 || isBusy}
+          onClick={() => void goToSection(index)}
         >
           <ArrowLeft size={16} aria-hidden /> Back
         </Button>
       }
       next={
-        /* Nothing is forced: an unfinished step can be left for later, and the
-           ones still open are listed again before the homework is handed in. */
-        <Button
-          size="xl"
-          variant={!isLastQuestion && !isCurrentAnswerComplete ? "outline" : "default"}
-          disabled={isSaving}
-          onClick={() => void (isLastQuestion ? submitHomework() : goToStep(index + 2))}
-        >
-          {isSaving
-            ? "Saving…"
-            : isLastQuestion
-              ? "Submit homework"
-              : isCurrentAnswerComplete
-                ? "Continue"
-                : "Skip for now"}
-          {isLastQuestion ? <Send size={15} aria-hidden /> : <ArrowRight size={16} aria-hidden />}
-        </Button>
+        <>
+          {/* A section of written answers has nothing a machine can mark, so
+              offering to check it only promises something it cannot give. */}
+          {isSelfCheckEnabled && isSectionCheckable ? (
+            <Button
+              variant="outline"
+              size="xl"
+              disabled={isBusy || !hasAnythingToCheck}
+              title={
+                hasAnythingToCheck ? undefined : "Answer something first, then check it."
+              }
+              onClick={() => void checkSection()}
+            >
+              <ListChecks size={16} aria-hidden />
+              {isChecking ? "Checking…" : check && !check.isStale ? "Check again" : "Check section"}
+            </Button>
+          ) : null}
+          {/* Nothing is forced: an unfinished section can be left for later, and
+              the ones still open are listed again before the homework is in. */}
+          <Button
+            size="xl"
+            variant={!isLastSection && !isSectionComplete ? "outline" : "default"}
+            disabled={isBusy}
+            onClick={() => void (isLastSection ? submitHomework() : goToSection(index + 2))}
+          >
+            {isSaving
+              ? "Saving…"
+              : isLastSection
+                ? "Submit homework"
+                : isSectionComplete
+                  ? "Continue"
+                  : "Skip for now"}
+            {isLastSection ? <Send size={15} aria-hidden /> : <ArrowRight size={16} aria-hidden />}
+          </Button>
+        </>
       }
     >
-      <QuestionWidget content={question.content} response={response} onChange={updateResponse} />
+      <ol className="grid gap-7">
+        {section.questions.map((question, questionIndex) => (
+          <SectionActivity
+            key={question._id}
+            question={question}
+            number={questionIndex + 1}
+            sectionTask={section.task}
+            response={responseFor(question)}
+            verdict={check?.items[question._id]}
+            onChange={(next) => updateResponse(question, next)}
+          />
+        ))}
+      </ol>
     </HomeworkWizard>
   );
 }
 
-/** Last stop before handing in: every step left open, one tap away. */
-function SkippedStepsNotice({
-  steps,
-  isBusy,
-  onGoToStep,
+type SectionItemVerdict = {
+  status: "correct" | "partial" | "incorrect" | "needs_teacher" | "unanswered";
+  parts: boolean[];
+};
+
+type SectionCheck = {
+  score: number;
+  maxScore: number;
+  correctCount: number;
+  gradedCount: number;
+  /** Set once an answer in the section was reworked after it was marked. */
+  isStale: boolean;
+  items: Record<string, SectionItemVerdict>;
+};
+
+const VERDICT_CHIP_LABELS: Record<SectionItemVerdict["status"], string> = {
+  correct: "correct",
+  partial: "nearly",
+  incorrect: "try again",
+  needs_teacher: "your teacher will read this",
+  unanswered: "not answered",
+};
+
+/** One activity inside a section: its own prompt, its own answer, its own mark. */
+function SectionActivity({
+  question,
+  number,
+  sectionTask,
+  response,
+  verdict,
+  onChange,
 }: {
-  steps: number[];
+  question: PlayerQuestion;
+  number: number;
+  sectionTask: string;
+  response: AnswerResponse;
+  verdict?: SectionItemVerdict;
+  onChange: (response: AnswerResponse) => void;
+}) {
+  const isMarked = verdict?.status === "correct" || verdict?.status === "partial" || verdict?.status === "incorrect";
+
+  return (
+    <li className="grid grid-cols-[1.5rem_minmax(0,1fr)] gap-x-3 gap-y-2">
+      <span className="mt-0.5 font-mono text-[12.5px] text-ink-muted numeric">{number}.</span>
+      <div className="min-w-0">
+        <div className="flex items-start justify-between gap-3">
+          <PromptContent prompt={question.prompt} size="sm" className="min-w-0 flex-1" />
+          {verdict ? (
+            <span
+              className={cn(
+                "mt-0.5 shrink-0 font-mono text-[10.5px] uppercase tracking-[0.1em]",
+                verdict.status === "correct"
+                  ? "text-primary"
+                  : verdict.status === "incorrect" || verdict.status === "partial"
+                    ? "text-destructive"
+                    : "text-ink-muted",
+              )}
+            >
+              {VERDICT_CHIP_LABELS[verdict.status]}
+            </span>
+          ) : null}
+        </div>
+        {question.instructions && question.instructions !== sectionTask ? (
+          <p className="mt-1 text-pretty text-[12.5px] leading-5 text-ink-muted">
+            {question.instructions}
+          </p>
+        ) : null}
+        <div className="mt-3">
+          <QuestionWidget
+            content={question.content}
+            response={response}
+            onChange={onChange}
+            marking={isMarked ? toCheckMarking(verdict) : undefined}
+          />
+        </div>
+      </div>
+    </li>
+  );
+}
+
+/**
+ * What a mid-homework check may say: this part of your answer is wrong. Never
+ * what the answer was — the student is about to rework it, and the full key with
+ * its explanations is waiting at the end.
+ */
+function toCheckMarking(verdict: SectionItemVerdict): WidgetMarking {
+  return {
+    parts: verdict.parts.map((isCorrect) => ({ isCorrect, expected: "" })),
+    revealsAnswers: false,
+    verdict: verdict.status === "needs_teacher" || verdict.status === "unanswered"
+      ? "incorrect"
+      : verdict.status,
+  };
+}
+
+function SectionCheckSummary({ check }: { check: SectionCheck }) {
+  if (check.gradedCount === 0) {
+    return (
+      <p className="mt-7 rounded-xl border border-border bg-muted/40 px-4 py-3.5 text-[13px] leading-5 text-ink-secondary">
+        These answers are written in your own words, so your teacher reads them.
+      </p>
+    );
+  }
+
+  return (
+    <div
+      aria-live="polite"
+      className={cn(
+        "mt-7 flex flex-wrap items-baseline gap-x-3 gap-y-1 rounded-xl border px-4 py-3.5",
+        // A green panel over "0 / 6 right" reads as success at a glance, which
+        // is the exact confusion this check exists to remove.
+        check.isStale
+          ? "border-border bg-muted/40"
+          : check.correctCount === check.gradedCount
+            ? "border-primary/40 bg-primary-soft/45"
+            : "border-destructive/35 bg-critical-soft/40",
+      )}
+    >
+      <p className="text-[15px] font-semibold text-ink numeric">
+        {check.correctCount} / {check.gradedCount} right
+      </p>
+      <p className="min-w-0 flex-1 text-[13px] leading-5 text-ink-secondary">
+        {check.isStale
+          ? "You changed an answer since this check — check again to mark it."
+          : check.correctCount === check.gradedCount
+            ? "All correct. Keep going."
+            : "The ones marked in red are still wrong. Fix them and check again, or move on."}
+      </p>
+    </div>
+  );
+}
+
+/** Last stop before handing in: every section left open, one tap away. */
+function SkippedSectionsNotice({
+  sections,
+  isBusy,
+  onGoToSection,
+}: {
+  sections: number[];
   isBusy: boolean;
-  onGoToStep: (step: number) => void;
+  onGoToSection: (step: number) => void;
 }) {
   return (
     <div className="mt-7 rounded-xl border border-border bg-muted/40 px-4 py-3.5">
       <p className="text-[13.5px] font-medium text-ink">
-        {steps.length} {steps.length === 1 ? "activity is" : "activities are"} still unanswered.
+        {sections.length} {sections.length === 1 ? "section is" : "sections are"} not finished.
       </p>
       <p className="mt-1 text-[13px] leading-5 text-ink-secondary">
         You can go back to them, or submit as it is.
       </p>
       <ul className="mt-3 flex flex-wrap gap-1.5">
-        {steps.map((step) => (
+        {sections.map((step) => (
           <li key={step}>
             <button
               type="button"
               disabled={isBusy}
-              onClick={() => onGoToStep(step)}
+              onClick={() => onGoToSection(step)}
               className="min-h-9 rounded-lg border border-border bg-card px-3 text-[13px] font-medium text-ink numeric outline-none transition-[background-color,border-color] duration-150 hover:border-input hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-55"
             >
-              Step {step}
+              Section {step}
             </button>
           </li>
         ))}

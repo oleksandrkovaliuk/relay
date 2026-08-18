@@ -345,7 +345,7 @@ function MatchingBoard({ lefts, rights, assigned, onChange, isReadOnly }: Matchi
           const isTinted = isActive || Boolean(match);
           return (
             <div
-              key={left}
+              key={index}
               ref={(element) => {
                 if (element) leftRefs.current.set(index, element);
                 else leftRefs.current.delete(index);
@@ -396,7 +396,7 @@ function MatchingBoard({ lefts, rights, assigned, onChange, isReadOnly }: Matchi
       <div className="col-start-2" />
 
       <div className="col-start-3 grid content-start gap-2.5">
-        {rights.map((right) => {
+        {rights.map((right, rightIndex) => {
           const matchedLeftIndex = assigned.indexOf(right);
           const isMatched = matchedLeftIndex >= 0;
           const matchedLeft = isMatched ? lefts[matchedLeftIndex] : null;
@@ -410,7 +410,7 @@ function MatchingBoard({ lefts, rights, assigned, onChange, isReadOnly }: Matchi
               : right;
           return (
             <div
-              key={right}
+              key={rightIndex}
               ref={(element) => {
                 if (element) rightRefs.current.set(right, element);
                 else rightRefs.current.delete(right);
@@ -455,7 +455,9 @@ function MatchingBoard({ lefts, rights, assigned, onChange, isReadOnly }: Matchi
           className="col-span-3 mt-2 text-[13px] leading-5 text-ink-secondary lg:text-sm"
         >
           {activeLeft === null
-            ? "Choose a word on the left, then its match on the right."
+            ? `Choose a word on the left, then its match on the right. ${
+                assigned.filter((right) => right.length > 0).length
+              } of ${lefts.length} paired.`
             : `Now choose the match for “${lefts[activeLeft]}”.`}
         </p>
       ) : null}
@@ -503,7 +505,7 @@ function MatchingList({ lefts, rights, assigned, onChange, isReadOnly, marking }
         const isTinted = !marking && (Boolean(match) || isOpen);
         return (
           <div
-            key={left}
+            key={index}
             style={isTinted ? getMatchEndpointStyle(index, lefts.length) : undefined}
             className={cn(
               "match-endpoint overflow-hidden rounded-xl border",
@@ -579,12 +581,12 @@ function MatchingList({ lefts, rights, assigned, onChange, isReadOnly, marking }
 
             {isOpen ? (
               <ul className="grid gap-1.5 border-t border-current/15 bg-card/55 p-2">
-                {rights.map((right) => {
+                {rights.map((right, rightIndex) => {
                   const takenBy = assigned.indexOf(right);
                   const isChosen = takenBy === index;
                   const isTakenElsewhere = takenBy >= 0 && takenBy !== index;
                   return (
-                    <li key={right}>
+                    <li key={rightIndex}>
                       <button
                         type="button"
                         aria-pressed={isChosen}

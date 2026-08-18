@@ -1,7 +1,14 @@
 import type { Id } from "@convex/_generated/dataModel";
 import { UNSELECTED_OPTION, type AnswerResponse, type PlayerQuestion } from "./answer-types";
 
-export const PLAYER_STORAGE_VERSION = 1 as const;
+/**
+ * Bumped when `index` stopped meaning "the activity on screen" and started
+ * meaning "the section on screen". The same number would have resumed a student
+ * who was on activity 20 of 32 at section 20, clamped to the last one — on the
+ * submit screen, past work they had not done.
+ */
+export const PLAYER_STORAGE_VERSION = 2 as const;
+const LEGACY_ACTIVITY_INDEX_VERSION = 1;
 const PLAYER_STORAGE_KEY_PREFIX = "erm:homework-player:v1:";
 
 export interface PlayerSession {
@@ -60,10 +67,31 @@ export function readStoredPlayerProgress(shareToken: string): StoredPlayerProgre
 export function parseStoredPlayerProgress(serializedProgress: string): StoredPlayerProgress | null {
   try {
     const parsedProgress: unknown = JSON.parse(serializedProgress);
-    return isStoredPlayerProgress(parsedProgress) ? parsedProgress : null;
+    if (isStoredPlayerProgress(parsedProgress)) return parsedProgress;
+    return migrateLegacyProgress(parsedProgress);
   } catch {
     return null;
   }
+}
+
+/**
+ * Answers survive a version change; a position does not. Responses are keyed by
+ * activity, so they are carried over as they are, and the student restarts at
+ * the first section with everything they had already typed still in place.
+ */
+function migrateLegacyProgress(value: unknown): StoredPlayerProgress | null {
+  if (!isRecord(value)) return null;
+  if (value.version !== LEGACY_ACTIVITY_INDEX_VERSION) return null;
+  if (!isPlayerSession(value.session)) return null;
+  if (!isRecord(value.responses)) return null;
+  if (!Object.values(value.responses).every(isAnswerResponse)) return null;
+  return {
+    version: PLAYER_STORAGE_VERSION,
+    session: value.session,
+    index: 0,
+    responses: value.responses as Record<string, AnswerResponse>,
+    ...(isPlayerResult(value.result) ? { result: value.result } : {}),
+  };
 }
 
 export function writeStoredPlayerProgress(
@@ -95,6 +123,11 @@ export function clearStoredPlayerProgress(shareToken: string) {
   }
 }
 
+/**
+ * The saved answers that still fit the homework as it stands, plus the step the
+ * student was on. `index` counts sections; the caller clamps it, because only it
+ * knows how the activities group.
+ */
 export function restoreQuestionState(
   progress: StoredPlayerProgress | null,
   questions: PlayerQuestion[],
@@ -109,8 +142,7 @@ export function restoreQuestionState(
     }
   }
 
-  const lastQuestionIndex = Math.max(0, questions.length - 1);
-  return { index: Math.min(progress.index, lastQuestionIndex), responses };
+  return { index: Math.max(0, progress.index), responses };
 }
 
 function getPlayerStorageKey(shareToken: string) {
