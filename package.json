@@ -1,7 +1,7 @@
 {
   "name": "relay-teacher-desktop",
   "productName": "Relay",
-  "version": "0.3.2",
+  "version": "0.3.3",
   "private": true,
   "packageManager": "pnpm@10.34.4",
   "description": "Relay — a one-to-one teacher workspace with interactive homework and live learning insights.",
@@ -23,7 +23,6 @@
     "check": "pnpm typecheck && pnpm test && pnpm build && pnpm build:web",
     "package": "pnpm build && electron-builder --publish never",
     "package:mac": "pnpm build && electron-builder --mac --publish never",
-    "verify:packaged": "node scripts/verify-packaged-runtime.mjs",
     "release": "pnpm build && electron-builder --publish always"
   },
   "dependencies": {
@@ -40,7 +39,6 @@
     "convex": "^1.43.0",
     "convex-helpers": "^0.1.122",
     "date-fns": "^4.4.0",
-    "electron-store": "^8.2.0",
     "lucide-react": "^0.468.0",
     "motion": "^13.0.0",
     "react": "^19.2.8",
