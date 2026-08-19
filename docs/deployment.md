@@ -160,7 +160,24 @@ scoped access to Relay accounts.
   `relay://renderer/` to the SSO redirect allowlist. The Clerk Electron bridge
   routes that callback back to the running desktop app.
 - Clerk → *Integrations* → *Convex*: activate the integration. This configures
-  Clerk session tokens with the `aud: "convex"` claim Convex expects.
+  Clerk session tokens with the `aud: "convex"` claim Convex expects. It adds
+  **only** that claim — verified by decoding a live token, whose payload is
+  `aud, exp, fva, iat, iss, nbf, sid, sts, sub, v`.
+- Clerk → *Sessions* → *Customize session token*: add the profile claims, on every
+  instance including development. Convex maps these onto `ctx.auth.getUserIdentity()`,
+  and `users.ensureCurrent` stores whichever are present. Without them the `users`
+  table shows `email` and `name` as `unset`, because the token never carried them.
+
+  ```json
+  {
+    "email": "{{user.primary_email_address}}",
+    "name": "{{user.full_name}}",
+    "picture": "{{user.image_url}}"
+  }
+  ```
+
+  The claims are the only trustworthy source for these: the desktop app must not send
+  a profile field as a mutation argument, since a client can put anything there.
 - Clerk → *Settings* → *Branding*: keep **Remove "Secured by Clerk" branding**
   off. The app renders Clerk's standard sign-in component and its attribution.
 
