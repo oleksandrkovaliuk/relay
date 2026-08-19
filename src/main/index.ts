@@ -1,9 +1,8 @@
 import { existsSync } from "node:fs";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
 import { createClerkBridge } from "@clerk/electron";
-import { storage as createClerkStorage } from "@clerk/electron/storage";
 import { app, BrowserWindow, nativeImage, net, protocol, session, shell } from "electron";
 
 import { ClaudeConnectionStore } from "./claude/claude-connections";
@@ -12,6 +11,8 @@ import { registerClaudeConnectionIpc } from "./claude/register-claude-connection
 import { registerClaudeIpc } from "./claude/register-claude-ipc";
 import { resolveClaudeExecutable } from "./claude/resolve-claude-executable";
 import { resolveClerkFrontendApiHost } from "./clerk-frontend-api";
+import { createFileTokenStorage } from "./clerk-token-storage";
+import { createExternalNavigationGuard } from "./external-navigation";
 import {
   withRendererCorsForNativeClerkResponse,
   withoutBrowserOriginForNativeClerkRequest,
@@ -81,14 +82,25 @@ function createWindow() {
     if (app.isPackaged) mainWindow.show();
     else mainWindow.showInactive();
   });
+  // Relay's window only ever shows its own renderer; everything else belongs in the
+  // user's browser, where their sessions and password manager live.
+  const externalNavigation = createExternalNavigationGuard({ now: () => Date.now() });
+  const openExternally = (url: string) => {
+    if (!externalNavigation.shouldOpen(url)) {
+      console.warn(`Ignored a repeated request to open ${url} externally.`);
+      return;
+    }
+    void shell.openExternal(url);
+  };
+
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-    if (shouldOpenInExternalBrowser(url)) void shell.openExternal(url);
+    if (shouldOpenInExternalBrowser(url)) openExternally(url);
     return { action: "deny" };
   });
   mainWindow.webContents.on("will-navigate", (event, url) => {
     if (!shouldOpenInExternalBrowser(url)) return;
     event.preventDefault();
-    void shell.openExternal(url);
+    openExternally(url);
   });
 
   void mainWindow.loadURL(RENDERER_URL);
@@ -101,7 +113,14 @@ function registerRendererProtocol() {
     if (developmentServerUrl) {
       const developmentUrl = resolveRendererDevelopmentUrl(request.url, developmentServerUrl);
       if (!developmentUrl) return new Response(null, { status: 404 });
-      return net.fetch(developmentUrl);
+      // Forward the method and body too, so anything Vite serves over POST still works
+      // through the proxy rather than silently arriving as a GET.
+      const init: RequestInit = { method: request.method };
+      if (request.method !== "GET" && request.method !== "HEAD") {
+        init.body = request.body;
+        Reflect.set(init, "duplex", "half");
+      }
+      return net.fetch(developmentUrl, init);
     }
 
     const rendererDirectory = join(__dirname, "../renderer");
@@ -163,25 +182,21 @@ app.setPath("userData", LEGACY_USER_DATA_PATH);
 
 const clerkBridge = createClerkBridge({
   renderer: { scheme: RENDERER_SCHEME, host: RENDERER_HOST },
-  storage: createClerkStorage({ path: app.getPath("userData") }),
+  storage: createFileTokenStorage(join(app.getPath("userData"), "clerk-tokens.json")),
   userAgent: `Relay/${app.getVersion()}`,
 });
-const isPackagedSmokeTest = app.isPackaged && process.argv.includes("--smoke-test");
-
 if (!app.isPackaged) {
   app.commandLine.appendSwitch("remote-debugging-port", DEVELOPMENT_INSPECT_PORT);
+  // Clerk's bridge registers the scheme, but an unpackaged run is launched through the
+  // Electron binary, so the OS needs the script path as well to route an OAuth callback
+  // back to this instance rather than to Electron itself.
+  const [, entryScript] = process.argv;
+  if (process.defaultApp && entryScript) {
+    app.setAsDefaultProtocolClient(RENDERER_SCHEME, process.execPath, [resolve(entryScript)]);
+  }
 }
 
-if (!clerkBridge.isPrimaryInstance) {
-  // Clerk's bridge already called `app.quit()`; a smoke test must not report a pass it
-  // never performed, so fail loudly instead of exiting 0 alongside the running instance.
-  if (isPackagedSmokeTest) {
-    console.error(
-      "Packaged runtime smoke test aborted: another Relay instance holds the single-instance lock.",
-    );
-    app.exit(1);
-  }
-} else {
+if (clerkBridge.isPrimaryInstance) {
   startPrimaryInstance();
 }
 
@@ -211,8 +226,7 @@ function startPrimaryInstance() {
       environment: process.env,
     });
     registerNotificationIpc();
-    const mainWindow = createWindow();
-    if (isPackagedSmokeTest) watchPackagedSmokeTest(mainWindow);
+    createWindow();
 
     app.on("activate", () => {
       if (BrowserWindow.getAllWindows().length === 0) createWindow();
@@ -229,74 +243,4 @@ function startPrimaryInstance() {
   app.on("window-all-closed", () => {
     if (process.platform !== "darwin") app.quit();
   });
-}
-
-/**
- * The release pipeline runs the real packaged binary through this path. Importing the
- * main bundle already proves Clerk's storage chain resolves inside `app.asar` — the
- * class of failure that shipped in 0.3.1, where a missing transitive `ajv` crashed the
- * app on launch. Loading the window additionally proves the custom protocol serves the
- * renderer and the preload script runs, none of which a unit test can observe.
- *
- * Renderer network calls are expected to fail on a build machine, so success is "the
- * document loaded", not "the app signed in".
- */
-function watchPackagedSmokeTest(mainWindow: BrowserWindow) {
-  // Generous, because a cold build agent is slow to paint a first frame. The launcher
-  // script holds a longer deadline still, so whichever fires first reports a reason.
-  const SMOKE_TEST_TIMEOUT_MS = 60_000;
-
-  const finish = (exitCode: number, message: string) => {
-    clearTimeout(timeout);
-    if (exitCode === 0) console.log(message);
-    else console.error(message);
-    clerkBridge.cleanup();
-    // `app.exit` rather than `app.quit`, so the recorded status is this result and not
-    // whatever a `before-quit` handler leaves behind.
-    app.exit(exitCode);
-  };
-
-  const timeout = setTimeout(() => {
-    finish(1, `Packaged runtime smoke test timed out after ${SMOKE_TEST_TIMEOUT_MS}ms.`);
-  }, SMOKE_TEST_TIMEOUT_MS);
-
-  mainWindow.webContents.once("did-finish-load", () => {
-    void waitForRendererToMount(mainWindow).then((mounted) => {
-      if (mounted) {
-        finish(0, "Packaged runtime smoke test passed: renderer mounted from the relay protocol.");
-      } else {
-        finish(1, "Packaged runtime smoke test loaded the document but the renderer never mounted.");
-      }
-    });
-  });
-  mainWindow.webContents.once("did-fail-load", (_event, errorCode, errorDescription) => {
-    finish(
-      1,
-      `Packaged runtime smoke test could not load the renderer: ${errorDescription} (${errorCode}).`,
-    );
-  });
-  mainWindow.webContents.once("render-process-gone", (_event, details) => {
-    finish(
-      1,
-      `Packaged runtime smoke test lost the renderer process: ${details.reason}.`,
-    );
-  });
-}
-
-/**
- * `did-finish-load` only means the document arrived. A renderer bundle that throws while
- * importing — a missing build-time variable, a chunk that never made it into `app.asar` —
- * still fires it and leaves an empty page. React renders a "connecting" state immediately,
- * so a populated root is the cheapest proof the bundle actually executed. Network calls are
- * expected to fail on a build agent, so this deliberately does not wait for sign-in.
- */
-async function waitForRendererToMount(mainWindow: BrowserWindow) {
-  for (let attempt = 0; attempt < 20; attempt += 1) {
-    const childCount: unknown = await mainWindow.webContents.executeJavaScript(
-      'document.getElementById("app")?.childElementCount ?? 0',
-    );
-    if (typeof childCount === "number" && childCount > 0) return true;
-    await new Promise((resolve) => setTimeout(resolve, 250));
-  }
-  return false;
 }

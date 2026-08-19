@@ -12,7 +12,13 @@ export function RelaySignIn() {
             Sign in to keep your students, homework, and submissions private to your account.
           </p>
         </div>
-        <SignIn routing="hash" />
+        {/*
+          `withSignUp` keeps account creation inside this component instead of linking out
+          to the hosted Account Portal, which would navigate away from the renderer. Hash
+          routing keeps Clerk's own steps out of the router: this screen renders outside
+          the router, so there is no `/sign-in` route for path routing to address.
+        */}
+        <SignIn withSignUp routing="hash" />
       </section>
     </main>
   );

@@ -1,13 +1,15 @@
-import { resolve, sep } from "node:path";
+import { join, resolve, sep } from "node:path";
 
-export const RENDERER_SCHEME = "relay";
-export const RENDERER_HOST = "renderer";
-export const RENDERER_URL = `${RENDERER_SCHEME}://${RENDERER_HOST}/`;
-/**
- * The origin Chromium reports for renderer pages, and therefore the value Clerk's
- * responses must allow. It has no trailing slash — an origin never does.
- */
-export const RENDERER_ORIGIN = `${RENDERER_SCHEME}://${RENDERER_HOST}`;
+import {
+  RENDERER_HOST,
+  RENDERER_ORIGIN,
+  RENDERER_SCHEME,
+  RENDERER_URL,
+} from "@/shared/renderer-origin";
+
+export { RENDERER_HOST, RENDERER_ORIGIN, RENDERER_SCHEME, RENDERER_URL };
+
+const HAS_FILE_EXTENSION = /\.[^/]+$/;
 
 function parseUrl(value: string) {
   try {
@@ -57,9 +59,14 @@ export function resolveRendererFilePath(requestUrl: string, rendererDirectory: s
     return null;
   }
 
-  const relativePath = decodedPath === "/" ? "index.html" : decodedPath.slice(1);
   const rendererRoot = resolve(rendererDirectory);
-  const rendererFilePath = resolve(rendererRoot, relativePath);
+
+  // A path with no file extension is an application route, not a built asset. Serving the
+  // document for those means a hard navigation — Clerk redirecting, or a reload — renders
+  // the app instead of 404ing, which previously left the window blank.
+  if (!HAS_FILE_EXTENSION.test(decodedPath)) return join(rendererRoot, "index.html");
+
+  const rendererFilePath = resolve(rendererRoot, decodedPath.slice(1));
   const isInsideRendererRoot = rendererFilePath.startsWith(`${rendererRoot}${sep}`);
   if (!isInsideRendererRoot) return null;
   return rendererFilePath;
