@@ -14,7 +14,7 @@ import { createRoot } from "react-dom/client";
 import "@/styles.css";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { RelayConnecting } from "@/auth/relay-connecting";
-import { RelaySignIn } from "@/auth/relay-sign-in";
+import { RelaySessionGate } from "@/auth/relay-session-recovery";
 import { RelayUserBootstrap } from "@/auth/relay-user-bootstrap";
 import { applyTheme, readThemePreference } from "@/settings/theme";
 import { RENDERER_SCHEME } from "@/shared/renderer-origin";
@@ -81,7 +81,7 @@ function AuthenticatedRelayApp() {
             <RelayConnecting />
           </AuthLoading>
           <Unauthenticated>
-            <RelaySignIn />
+            <RelaySessionGate />
           </Unauthenticated>
           <Authenticated>
             <RelayUserBootstrap>
