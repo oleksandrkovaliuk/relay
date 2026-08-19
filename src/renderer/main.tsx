@@ -18,7 +18,7 @@ import { RelaySignIn } from "@/auth/relay-sign-in";
 import { RelayUserBootstrap } from "@/auth/relay-user-bootstrap";
 import { applyTheme, readThemePreference } from "@/settings/theme";
 import { RENDERER_SCHEME } from "@/shared/renderer-origin";
-import { toRendererPath } from "./clerk-navigation";
+import { createClerkRouterCallbacks } from "./clerk-navigation";
 import { router } from "./router";
 
 applyTheme(readThemePreference());
@@ -34,6 +34,10 @@ if (!clerkPublishableKey) {
 }
 
 const convex = new ConvexReactClient(convexUrl);
+const clerkRouter = createClerkRouterCallbacks({
+  navigate: (path, options) => router.navigate({ to: path, replace: options.replace }),
+  onError: (path, cause) => console.error(`Could not navigate to ${path}:`, cause),
+});
 createRoot(rootElement).render(
   <StrictMode>
     <ClerkProvider
@@ -56,8 +60,8 @@ createRoot(rootElement).render(
        * Any navigation Clerk does decide to make goes through the app's own router rather
        * than `window.location`, so it can never leave the renderer's origin.
        */
-      routerPush={(to) => navigateWithinApp(to)}
-      routerReplace={(to) => navigateWithinApp(to, { replace: true })}
+      routerPush={clerkRouter.routerPush}
+      routerReplace={clerkRouter.routerReplace}
       // The SDK infers this from `window.location.protocol`; naming it makes the
       // requirement visible, since Clerk drops redirects to unlisted protocols.
       allowedRedirectProtocols={[`${RENDERER_SCHEME}:`]}
@@ -66,21 +70,6 @@ createRoot(rootElement).render(
     </ClerkProvider>
   </StrictMode>,
 );
-
-/**
- * Clerk awaits these callbacks inside sign-in and sign-out. Anything thrown here leaves the
- * flow unresolved and the app wedged on its loading state, so this never rejects.
- */
-async function navigateWithinApp(target: string, options?: { replace?: boolean }) {
-  const path = toRendererPath(target);
-  if (!path) return;
-
-  try {
-    await router.navigate({ to: path, replace: options?.replace });
-  } catch (cause) {
-    console.error(`Could not navigate to ${path}:`, cause);
-  }
-}
 
 function AuthenticatedRelayApp() {
   return (

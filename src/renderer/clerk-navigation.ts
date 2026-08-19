@@ -26,3 +26,36 @@ export function toRendererPath(target: string) {
   if (`${url.protocol}//${url.host}` !== RENDERER_ORIGIN) return null;
   return `${url.pathname}${url.search}${url.hash}` || "/";
 }
+
+/**
+ * Builds Clerk's `routerPush` / `routerReplace` callbacks.
+ *
+ * Clerk awaits whatever these return, so they must return `undefined` rather than a promise.
+ * Awaiting the router wedged sign-out: `<Authenticated>` unmounts the router the moment the
+ * session ends, so nothing remained to complete the navigation and its promise never settled,
+ * leaving `signOut()` permanently in flight. Relay renders from auth state, not the URL, so
+ * Clerk never needs to wait on routing.
+ */
+export function createClerkRouterCallbacks(options: {
+  navigate: (path: string, options: { replace?: boolean }) => unknown;
+  onError?: (path: string, cause: unknown) => void;
+}) {
+  const start = (target: string, replace?: boolean): undefined => {
+    const path = toRendererPath(target);
+    if (!path) return;
+
+    try {
+      void Promise.resolve(options.navigate(path, { replace })).catch((cause: unknown) => {
+        options.onError?.(path, cause);
+      });
+    } catch (cause) {
+      // A synchronous throw must not surface either; Clerk is mid-flow.
+      options.onError?.(path, cause);
+    }
+  };
+
+  return {
+    routerPush: (target: string) => start(target),
+    routerReplace: (target: string) => start(target, true),
+  };
+}
