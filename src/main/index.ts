@@ -180,6 +180,28 @@ app.setName("Relay");
 app.setAboutPanelOptions({ applicationName: "Relay", applicationVersion: app.getVersion() });
 app.setPath("userData", LEGACY_USER_DATA_PATH);
 
+/**
+ * Clerk's bridge only takes Electron's single-instance lock off macOS, because macOS
+ * normally routes a second launch of the same bundle into the running process. That does not
+ * hold when several copies of the app exist — a build in `dist/`, one in `/Applications` —
+ * which launch as separate processes under one bundle id and therefore one user-data
+ * directory. Both then read and write the same Clerk token file, and since writes can only
+ * be serialised within a process they overwrite each other, signing the user out at random.
+ *
+ * Take the lock on every platform, and hand any later launch to the window already running.
+ */
+if (!app.requestSingleInstanceLock()) {
+  app.quit();
+}
+
+app.on("second-instance", () => {
+  const [existingWindow] = BrowserWindow.getAllWindows();
+  if (!existingWindow) return;
+  if (existingWindow.isMinimized()) existingWindow.restore();
+  existingWindow.show();
+  existingWindow.focus();
+});
+
 const clerkBridge = createClerkBridge({
   renderer: { scheme: RENDERER_SCHEME, host: RENDERER_HOST },
   storage: createFileTokenStorage(join(app.getPath("userData"), "clerk-tokens.json")),
@@ -196,7 +218,9 @@ if (!app.isPackaged) {
   }
 }
 
-if (clerkBridge.isPrimaryInstance) {
+// `app.quit()` above only requests a quit; guard the startup so a duplicate launch cannot
+// register protocol handlers or open a window on its way out.
+if (clerkBridge.isPrimaryInstance && app.hasSingleInstanceLock()) {
   startPrimaryInstance();
 }
 
