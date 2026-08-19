@@ -23,7 +23,21 @@ const FILE_MODE = 0o600;
 
 type TokenFile = Record<string, string>;
 
+/** Distinguishes concurrent writes from each other, and from another process's. */
+let temporaryFileCounter = 0;
+
 export function createFileTokenStorage(filePath: string): TokenStorage {
+  /**
+   * Clerk saves the rotating client JWT from inside its response pipeline, so several
+   * saves can be in flight at once. Serialising them keeps a read-modify-write from
+   * losing a concurrent update. A rejected operation must not stall the queue.
+   */
+  let queue: Promise<unknown> = Promise.resolve();
+  const serialize = <T>(operation: () => T) => {
+    const result = queue.then(operation, operation);
+    queue = result.catch(() => undefined);
+    return result;
+  };
   const read = (): TokenFile => {
     let contents: string;
     try {
@@ -50,26 +64,50 @@ export function createFileTokenStorage(filePath: string): TokenStorage {
   const write = (tokens: TokenFile) => {
     mkdirSync(dirname(filePath), { recursive: true });
     // Write-then-rename, so a crash mid-write cannot leave a half-written token behind.
-    const temporaryPath = `${filePath}.tmp`;
-    writeFileSync(temporaryPath, JSON.stringify(tokens), { mode: FILE_MODE });
-    renameSync(temporaryPath, filePath);
-    // `writeFileSync`'s mode is subject to umask, and rename preserves the source mode.
-    chmodSync(filePath, FILE_MODE);
+    // The temporary name is unique per write: a shared one let two concurrent writes
+    // rename the same path, so one of them failed with ENOENT and lost the token.
+    const temporaryPath = `${filePath}.${process.pid}.${(temporaryFileCounter += 1)}.tmp`;
+    try {
+      writeFileSync(temporaryPath, JSON.stringify(tokens), { mode: FILE_MODE });
+      renameSync(temporaryPath, filePath);
+      // `writeFileSync`'s mode is subject to umask, and rename preserves the source mode.
+      chmodSync(filePath, FILE_MODE);
+    } finally {
+      rmSync(temporaryPath, { force: true });
+    }
   };
+
+  /**
+   * Clerk awaits these from inside `__internal_onAfterResponse`. A rejection there breaks
+   * its request pipeline, so Clerk never finishes loading and the app waits on
+   * "Connecting securely…" forever, while the token silently fails to persist. Losing a
+   * token means signing in again; throwing means the app never recovers, so failures are
+   * reported and swallowed.
+   */
+  const attempt = (action: string, operation: () => void) =>
+    serialize(() => {
+      try {
+        operation();
+      } catch (cause) {
+        console.error(`Could not ${action} the Clerk token at ${filePath}:`, cause);
+      }
+    });
 
   return {
     getItem(key) {
-      return read()[key] ?? null;
+      return serialize(() => read()[key] ?? null);
     },
     setItem(key, value) {
-      write({ ...read(), [key]: value });
+      return attempt("save", () => write({ ...read(), [key]: value }));
     },
     removeItem(key) {
-      const tokens = read();
-      if (!(key in tokens)) return;
-      delete tokens[key];
-      if (Object.keys(tokens).length > 0) write(tokens);
-      else rmSync(filePath, { force: true });
+      return attempt("clear", () => {
+        const tokens = read();
+        if (!(key in tokens)) return;
+        delete tokens[key];
+        if (Object.keys(tokens).length > 0) write(tokens);
+        else rmSync(filePath, { force: true });
+      });
     },
   };
 }
