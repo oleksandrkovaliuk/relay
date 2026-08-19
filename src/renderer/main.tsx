@@ -13,6 +13,7 @@ import { createRoot } from "react-dom/client";
 
 import "@/styles.css";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { RelayConnecting } from "@/auth/relay-connecting";
 import { RelaySignIn } from "@/auth/relay-sign-in";
 import { RelayUserBootstrap } from "@/auth/relay-user-bootstrap";
 import { applyTheme, readThemePreference } from "@/settings/theme";
@@ -88,9 +89,7 @@ function AuthenticatedRelayApp() {
       <ConvexQueryCacheProvider maxIdleEntries={0}>
         <TooltipProvider delay={350}>
           <AuthLoading>
-            <div className="grid min-h-screen place-items-center bg-workspace-surface text-[13px] text-muted-foreground">
-              Connecting securely…
-            </div>
+            <RelayConnecting />
           </AuthLoading>
           <Unauthenticated>
             <RelaySignIn />
