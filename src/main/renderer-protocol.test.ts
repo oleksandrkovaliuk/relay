@@ -39,6 +39,22 @@ describe("resolveRendererFilePath", () => {
     );
   });
 
+  it("serves the document for application routes so a hard navigation is not a 404", () => {
+    // Clerk redirecting, or a reload, can navigate to a path with no built asset behind it.
+    expect(resolveRendererFilePath(`${RENDERER_URL}sign-in`, RENDERER_DIRECTORY)).toBe(
+      "/app/out/renderer/index.html",
+    );
+    expect(resolveRendererFilePath(`${RENDERER_URL}students/abc123`, RENDERER_DIRECTORY)).toBe(
+      "/app/out/renderer/index.html",
+    );
+  });
+
+  it("still serves real assets from disk rather than the document", () => {
+    expect(resolveRendererFilePath(`${RENDERER_URL}assets/index.css`, RENDERER_DIRECTORY)).toBe(
+      "/app/out/renderer/assets/index.css",
+    );
+  });
+
   it("rejects a path that cannot be percent-decoded", () => {
     expect(resolveRendererFilePath(`${RENDERER_URL}%ZZ`, RENDERER_DIRECTORY)).toBeNull();
   });

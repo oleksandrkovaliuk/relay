@@ -1,5 +1,5 @@
 import { existsSync } from "node:fs";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
 import { createClerkBridge } from "@clerk/electron";
@@ -12,6 +12,7 @@ import { registerClaudeConnectionIpc } from "./claude/register-claude-connection
 import { registerClaudeIpc } from "./claude/register-claude-ipc";
 import { resolveClaudeExecutable } from "./claude/resolve-claude-executable";
 import { resolveClerkFrontendApiHost } from "./clerk-frontend-api";
+import { createExternalNavigationGuard } from "./external-navigation";
 import {
   withRendererCorsForNativeClerkResponse,
   withoutBrowserOriginForNativeClerkRequest,
@@ -81,14 +82,25 @@ function createWindow() {
     if (app.isPackaged) mainWindow.show();
     else mainWindow.showInactive();
   });
+  // Relay's window only ever shows its own renderer; everything else belongs in the
+  // user's browser, where their sessions and password manager live.
+  const externalNavigation = createExternalNavigationGuard({ now: () => Date.now() });
+  const openExternally = (url: string) => {
+    if (!externalNavigation.shouldOpen(url)) {
+      console.warn(`Ignored a repeated request to open ${url} externally.`);
+      return;
+    }
+    void shell.openExternal(url);
+  };
+
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-    if (shouldOpenInExternalBrowser(url)) void shell.openExternal(url);
+    if (shouldOpenInExternalBrowser(url)) openExternally(url);
     return { action: "deny" };
   });
   mainWindow.webContents.on("will-navigate", (event, url) => {
     if (!shouldOpenInExternalBrowser(url)) return;
     event.preventDefault();
-    void shell.openExternal(url);
+    openExternally(url);
   });
 
   void mainWindow.loadURL(RENDERER_URL);
@@ -101,7 +113,14 @@ function registerRendererProtocol() {
     if (developmentServerUrl) {
       const developmentUrl = resolveRendererDevelopmentUrl(request.url, developmentServerUrl);
       if (!developmentUrl) return new Response(null, { status: 404 });
-      return net.fetch(developmentUrl);
+      // Forward the method and body too, so anything Vite serves over POST still works
+      // through the proxy rather than silently arriving as a GET.
+      const init: RequestInit = { method: request.method };
+      if (request.method !== "GET" && request.method !== "HEAD") {
+        init.body = request.body;
+        Reflect.set(init, "duplex", "half");
+      }
+      return net.fetch(developmentUrl, init);
     }
 
     const rendererDirectory = join(__dirname, "../renderer");
@@ -170,6 +189,13 @@ const isPackagedSmokeTest = app.isPackaged && process.argv.includes("--smoke-tes
 
 if (!app.isPackaged) {
   app.commandLine.appendSwitch("remote-debugging-port", DEVELOPMENT_INSPECT_PORT);
+  // Clerk's bridge registers the scheme, but an unpackaged run is launched through the
+  // Electron binary, so the OS needs the script path as well to route an OAuth callback
+  // back to this instance rather than to Electron itself.
+  const [, entryScript] = process.argv;
+  if (process.defaultApp && entryScript) {
+    app.setAsDefaultProtocolClient(RENDERER_SCHEME, process.execPath, [resolve(entryScript)]);
+  }
 }
 
 if (!clerkBridge.isPrimaryInstance) {
