@@ -1,7 +1,7 @@
 {
   "name": "relay-teacher-desktop",
   "productName": "Relay",
-  "version": "0.3.7",
+  "version": "0.4.0",
   "private": true,
   "packageManager": "pnpm@10.34.4",
   "description": "Relay — a one-to-one teacher workspace with interactive homework and live learning insights.",
@@ -10,7 +10,7 @@
   "scripts": {
     "dev": "convex dev --start \"pnpm dev:desktop\"",
     "dev:convex": "convex dev",
-    "dev:desktop": "electron-vite dev",
+    "dev:desktop": "electron-vite dev --watch",
     "dev:web": "vite --config vite.web.config.ts",
     "generate:routes": "tsr generate",
     "build": "pnpm generate:routes && electron-vite build",
