@@ -7,7 +7,7 @@ import {
   Unauthenticated,
 } from "convex/react";
 import { ConvexProviderWithClerk } from "convex/react-clerk";
-import { ConvexQueryCacheProvider } from "convex-helpers/react/cache/provider";
+import { SessionQueryCache } from "@/lib/session-query-cache";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 
@@ -40,7 +40,7 @@ const clerkRouter = createClerkRouterCallbacks({
 });
 createRoot(rootElement).render(
   <StrictMode>
-    <ClerkProvider
+    {window.desktop ? <ClerkProvider
       publishableKey={clerkPublishableKey}
       /*
        * Clerk's dashboard points `after_sign_in_url` at the marketing site
@@ -67,29 +67,39 @@ createRoot(rootElement).render(
       allowedRedirectProtocols={[`${RENDERER_SCHEME}:`]}
     >
       <AuthenticatedRelayApp />
-    </ClerkProvider>
+    </ClerkProvider> : <DesktopRequired />}
   </StrictMode>,
 );
 
 function AuthenticatedRelayApp() {
+  const { sessionId } = useAuth();
   return (
     <ConvexProviderWithClerk client={convex} useAuth={useAuth}>
-      {/* Private subscriptions must close before Convex clears the JWT. */}
-      <ConvexQueryCacheProvider maxIdleEntries={0}>
-        <TooltipProvider delay={350}>
-          <AuthLoading>
-            <RelayConnecting />
-          </AuthLoading>
-          <Unauthenticated>
-            <RelaySessionGate />
-          </Unauthenticated>
-          <Authenticated>
+      <TooltipProvider delay={350}>
+        <AuthLoading>
+          <RelayConnecting />
+        </AuthLoading>
+        <Unauthenticated>
+          <RelaySessionGate />
+        </Unauthenticated>
+        <Authenticated>
+          <SessionQueryCache key={sessionId}>
             <RelayUserBootstrap>
               <RouterProvider router={router} />
             </RelayUserBootstrap>
-          </Authenticated>
-        </TooltipProvider>
-      </ConvexQueryCacheProvider>
+          </SessionQueryCache>
+        </Authenticated>
+      </TooltipProvider>
     </ConvexProviderWithClerk>
   );
+}
+
+function DesktopRequired() {
+  return <main className="flex min-h-screen items-center justify-center bg-background p-8">
+    <div className="max-w-md text-center">
+      <h1 className="text-3xl font-medium tracking-tight">Your teaching workspace lives in Relay</h1>
+      <p className="mt-4 text-sm leading-6 text-muted-foreground">Open the Relay desktop app to sign in, create homework and work with Claude. Student homework links open directly in a browser.</p>
+      <p className="mt-6 rounded-2xl bg-muted p-4 text-xs leading-5 text-muted-foreground">This address serves the desktop workspace. Sign in from the Relay window to continue.</p>
+    </div>
+  </main>;
 }

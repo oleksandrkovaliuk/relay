@@ -39,6 +39,10 @@ function WorkspaceChrome() {
   // Summaries are generated the moment work arrives, so the teacher never waits
   // for one they are already looking at.
   useAutomaticSummaries({ isClaudeReady: availability?.isAuthenticated ?? false });
+  useQuery(api.students.list);
+  useQuery(api.assignments.listPublished);
+  useQuery(api.aiJobs.listActive);
+  useQuery(api.feed.inProgress);
   const awaitingSummary = useQuery(api.feed.awaitingSummary);
   const drafts = useQuery(api.assignments.listDrafts);
   const pathname = useRouterState({ select: (state) => state.location.pathname });

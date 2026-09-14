@@ -1,4 +1,5 @@
 import { Link } from "@tanstack/react-router";
+import { useConvex } from "convex/react";
 import type { FunctionReturnType } from "convex/server";
 import { AlertTriangle, ArrowRight, Lightbulb, Sparkles } from "lucide-react";
 
@@ -6,6 +7,7 @@ import type { api } from "@convex/_generated/api";
 import type { Id } from "@convex/_generated/dataModel";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
+import { prewarmStudentHistory, prewarmSubmissionDetail } from "@/lib/convex-query-warmup";
 import { cn } from "@/lib/utils";
 
 export type InsightHighlight = FunctionReturnType<typeof api.dashboard.highlights>[number];
@@ -38,6 +40,7 @@ export function InsightHighlightCard({
   highlight: InsightHighlight;
   onOpenSubmission?: (submissionId: Id<"submissions">) => void;
 }) {
+  const convex = useConvex();
   const { icon: Icon, color, border } = TONE_STYLES[highlight.tone];
   const submissionId = highlight.submissionId;
   const label = ACTION_LABELS[highlight.kind];
@@ -45,7 +48,8 @@ export function InsightHighlightCard({
    * A skill gap belongs to no single submission — the answer to it is more
    * practice, so it leads to the builder with that student already chosen.
    */
-  const isPlanning = highlight.kind === "skill_gap" && Boolean(highlight.studentId);
+  const planningStudentId =
+    highlight.kind === "skill_gap" && highlight.studentId ? highlight.studentId : null;
   const canOpenSubmission = Boolean(submissionId && onOpenSubmission);
 
   return (
@@ -72,15 +76,16 @@ export function InsightHighlightCard({
         <p className="mt-1 text-pretty text-[12.5px] leading-5 text-secondary-foreground xl:text-[13.5px]">
           {highlight.detail}
         </p>
-        {isPlanning && highlight.studentId ? (
+        {planningStudentId ? (
           <Button
             variant="ghost"
             size="sm"
             className="-ml-2 mt-1.5"
+            /* The builder opens on this student's context, so start reading it. */
+            onPointerEnter={() => prewarmStudentHistory(convex, planningStudentId)}
+            onFocus={() => prewarmStudentHistory(convex, planningStudentId)}
             nativeButton={false}
-            render={
-              <Link to="/homework/new" search={{ studentId: highlight.studentId }} />
-            }
+            render={<Link to="/homework/new" search={{ studentId: planningStudentId }} />}
           >
             {label}
             <ArrowRight size={13} aria-hidden />
@@ -90,6 +95,8 @@ export function InsightHighlightCard({
             variant="ghost"
             size="sm"
             className="-ml-2 mt-1.5"
+            onPointerEnter={() => prewarmSubmissionDetail(convex, submissionId)}
+            onFocus={() => prewarmSubmissionDetail(convex, submissionId)}
             onClick={() => onOpenSubmission?.(submissionId)}
           >
             {label}

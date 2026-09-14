@@ -270,37 +270,13 @@ export const homeworkDraftSchema = z.object({
   questions: z.array(homeworkQuestionSchema).min(1).max(130),
 });
 
-/**
- * The models a teacher can pick between. Sonnet is the default because a full
- * set is one large structured answer: Opus spends about three minutes on it,
- * Sonnet a fraction of that, and the difference in the worksheet is small next
- * to the difference in waiting.
- */
-export const CLAUDE_MODELS = [
-  {
-    id: "claude-sonnet-5",
-    label: "Sonnet 5",
-    description: "The default. Fast enough to wait for, and strong at worksheet writing.",
-  },
-  {
-    id: "claude-opus-5",
-    label: "Opus 5",
-    description: "Deeper reasoning for tricky briefs. Noticeably slower and dearer.",
-  },
-  {
-    id: "claude-haiku-4-5",
-    label: "Haiku 4.5",
-    description: "Quickest and cheapest. Best for a rough draft you intend to edit.",
-  },
-] as const;
-
 export const claudeModelSchema = z.enum([
   "claude-sonnet-5",
   "claude-opus-5",
   "claude-haiku-4-5",
 ]);
 
-export const DEFAULT_CLAUDE_MODEL: ClaudeModel = "claude-sonnet-5";
+export const DEFAULT_CLAUDE_MODEL: ClaudeModel = "claude-opus-5";
 
 /**
  * What Relay has learned about this teacher, carried into every request. Each
@@ -344,7 +320,16 @@ export const generateHomeworkInputSchema = z
     { message: "Add lesson notes, student context, or a Miro board.", path: ["lessonNotes"] },
   );
 
+export const homeworkContextSchema = z.object({
+  lessonNotes: z.string().max(100_000).optional(),
+  studentContext: z.string().max(20_000).optional(),
+  recentPerformance: z.string().max(20_000).optional(),
+  difficulty: z.enum(["beginner", "intermediate", "advanced"]).optional(),
+  targetSkills: z.array(nonEmptyString).max(20).optional(),
+});
+
 export const rewriteHomeworkQuestionInputSchema = z.object({
+  context: homeworkContextSchema.optional(),
   requestId: z.string().min(1).max(128),
   homeworkTitle: z.string().min(1).max(300),
   homeworkSummary: z.string().min(1).max(20_000),

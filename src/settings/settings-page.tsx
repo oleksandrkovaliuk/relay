@@ -1,7 +1,6 @@
 import type { ReactNode } from "react";
 
 import { ClaudeAccountsSection } from "@/claude/claude-accounts-section";
-import { ClaudeModelSection } from "@/claude/claude-model-section";
 import { CLAUDE_INSTALL_GUIDE_URL } from "@/claude/claude-setup-dialog";
 import { RelayAccountSection } from "@/auth/relay-account-section";
 import { Button } from "@/components/ui/button";
@@ -42,15 +41,8 @@ export function SettingsPage({
       </SettingsSection>
 
       <SettingsSection
-        title="Model"
-        description="What every generation, edit and summary runs on. Sonnet is the default: a whole set is one long answer, and the wait is mostly the model."
-      >
-        <ClaudeModelSection />
-      </SettingsSection>
-
-      <SettingsSection
         title="Claude accounts"
-        description="Homework generation and answer summaries run through the Claude Code CLI on this Mac."
+        description="Homework generation, activity edits, and summaries use Opus 5 through Claude on this Mac."
         action={
           <Button variant="ghost" size="sm" onClick={onRecheck}>
             Re-check

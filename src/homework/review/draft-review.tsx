@@ -47,7 +47,7 @@ import { QuestionWidget } from "@/homework/player/question-widgets";
 import { HomeworkGlyph } from "@/homework/homework-glyph";
 import { AttachToMiroButton } from "@/homework/assignment/attach-to-miro-button";
 import { StudentMultiPicker } from "@/homework/assignment/student-multi-picker";
-import { ClaudeQuestionIsland } from "./claude-question-island";
+import { QuestionEditor } from "./question-editor";
 import { homeworkQuestionSchema, type HomeworkQuestion } from "@/shared/claude";
 
 type PreviewMode = "student" | "answer";
@@ -97,6 +97,7 @@ export function DraftReview({
   const [isDeleting, setIsDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [publishError, setPublishError] = useState<string | null>(null);
+  const [copyError, setCopyError] = useState<string | null>(null);
   const [hasCopied, setHasCopied] = useState(false);
   const [isSummaryExpanded, setIsSummaryExpanded] = useState(false);
   const [areAllGoalsVisible, setAreAllGoalsVisible] = useState(false);
@@ -104,6 +105,7 @@ export function DraftReview({
     Id<"students">[]
   >([]);
   const publishErrorRef = useRef<HTMLParagraphElement>(null);
+  const assignedStudentsKey = draft?.assignedStudents.map((student) => student._id).join(",");
 
   useEffect(
     function adoptAssignees() {
@@ -117,7 +119,7 @@ export function DraftReview({
           : initialStudentIds,
       );
     },
-    [draft, initialStudentIds],
+    [assignedStudentsKey, initialStudentIds],
   );
 
   if (draft === undefined || students === undefined) {
@@ -132,7 +134,7 @@ export function DraftReview({
     return (
       <>
         <DraftPageHeader />
-        <p className="mx-auto max-w-[1580px] px-6 py-8 text-[13px] lg:px-10">
+        <p className="mx-auto max-w-[1280px] px-6 py-8 text-[13px] lg:px-10">
           This draft is no longer available.
         </p>
       </>
@@ -173,6 +175,17 @@ export function DraftReview({
       ? [{ studentName: student.name, miroBoardUrl: student.miroBoardUrl }]
       : [],
   );
+
+  async function copyStudentLink() {
+    if (!draft?.publication) return;
+    setCopyError(null);
+    try {
+      await navigator.clipboard.writeText(buildShareUrl(draft.publication.shareToken));
+      setHasCopied(true);
+    } catch {
+      setCopyError("Could not copy the link. Try again.");
+    }
+  }
 
   async function publishDraft() {
     setIsPublishing(true);
@@ -279,50 +292,73 @@ export function DraftReview({
     <>
       <DraftPageHeader
         action={
-          draft.publication ? (
-            <div className="flex items-center gap-2.5">
-              {/* Closing used to leave the page looking exactly as it did before,
-                  so the only way to tell it had worked was the library. */}
-              {isClosedToStudents ? (
-                <span className="rounded-full bg-muted px-2.5 py-1 text-[11.5px] font-semibold uppercase tracking-[0.08em] text-secondary-foreground">
-                  Closed to students
-                </span>
-              ) : null}
-              <Button
-                variant="ghost"
-                nativeButton={false}
-                render={
-                  <a
-                    href={buildShareUrl(draft.publication.shareToken)}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                  />
-                }
-              >
-                <ExternalLink size={14} aria-hidden />{" "}
-                {isClosedToStudents ? "Preview link" : "Student link"}
+          /* One row, one control size: every action here is the same weight of
+             thing to click, whatever state the homework is in. */
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            {draft.publication ? (
+              <>
+                <AttachToMiroButton boards={assignedBoards} title={draft.title} summary={draft.summary}
+                  shareUrl={buildShareUrl(draft.publication.shareToken)} />
+                <Button variant="outline" size="lg" onClick={() => void copyStudentLink()}>
+                  <Copy size={14} aria-hidden />{hasCopied ? "Copied" : "Copy link"}
+                </Button>
+                {copyError ? <p role="alert" className="text-xs text-destructive">{copyError}</p> : null}
+                {/* Closing used to leave the page looking exactly as it did before,
+                    so the only way to tell it had worked was the library. */}
+                {isClosedToStudents ? (
+                  <span className="rounded-full bg-muted px-2.5 py-1 text-[11.5px] font-semibold uppercase tracking-[0.08em] text-secondary-foreground">
+                    Closed to students
+                  </span>
+                ) : null}
+                <Button
+                  variant="ghost"
+                  size="lg"
+                  nativeButton={false}
+                  render={
+                    <a
+                      href={buildShareUrl(draft.publication.shareToken)}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                    />
+                  }
+                >
+                  <ExternalLink size={14} aria-hidden />{" "}
+                  {isClosedToStudents ? "Preview link" : "Student link"}
+                </Button>
+                {isClosedToStudents ? (
+                  <Button size="lg" disabled={isReopening} onClick={() => void reopenStudentAccess()}>
+                    {isReopening ? "Reopening…" : "Reopen access"}
+                  </Button>
+                ) : (
+                  <Button variant="destructive" size="lg" onClick={() => setIsCloseDialogOpen(true)}>
+                    Close access
+                  </Button>
+                )}
+              </>
+            ) : (
+              <Button size="lg" onClick={() => setIsPublishDialogOpen(true)}>
+                Publish
               </Button>
-              {isClosedToStudents ? (
-                <Button disabled={isReopening} onClick={() => void reopenStudentAccess()}>
-                  {isReopening ? "Reopening…" : "Reopen access"}
-                </Button>
-              ) : (
-                <Button variant="destructive" onClick={() => setIsCloseDialogOpen(true)}>
-                  Close access
-                </Button>
-              )}
-            </div>
-          ) : (
-            <Button size="lg" onClick={() => setIsPublishDialogOpen(true)}>
-              Publish
+            )}
+            {/* Last, and quiet: closing access is reversible, this is not, and
+                two filled red buttons side by side say otherwise. */}
+            <Button
+              variant="destructiveGhost"
+              size="lg"
+              onClick={() => {
+                setDeleteError(null);
+                setIsDeleteDialogOpen(true);
+              }}
+            >
+              <Trash2 size={14} aria-hidden /> Delete
             </Button>
-          )
+          </div>
         }
       />
       {/* The same shell as the builder: one back link across the top, then two
           columns in the same 0.85 : 1 relationship whose headings share a
           baseline. */}
-      <div className="mx-auto w-full max-w-[1580px] px-6 py-8 lg:px-10 xl:py-10 2xl:px-12">
+      <div className="mx-auto w-full max-w-[1280px] px-6 py-8 lg:px-10 xl:py-10">
       <div className="mb-5">
         <Button
           variant="ghost"
@@ -334,15 +370,15 @@ export function DraftReview({
         </Button>
       </div>
 
-      <div className="grid gap-10 xl:grid-cols-[minmax(0,0.85fr)_minmax(0,1fr)] 2xl:gap-14">
+      <div className="grid gap-6 lg:grid-cols-[260px_minmax(0,1fr)] xl:grid-cols-[300px_minmax(0,1fr)] xl:gap-8">
         <aside className="grid content-start gap-7 pb-2">
           <section className="grid gap-3">
             <SectionHeading
               title="Assignment"
-              description="The brief this set was generated from, and who receives it."
+              description="Summary and learning goals."
               action={
                 <span className="text-[13px] text-muted-foreground">
-                  Private draft
+                  {draft.publication ? "Published" : "Draft"}
                 </span>
               }
             />
@@ -425,16 +461,14 @@ export function DraftReview({
           <section className="grid gap-3">
             <SectionHeading
               title="Student experience"
-              description="How the set behaves while a student works through it."
+              description="Answer checking."
             />
             <div className="panel px-5 py-4 xl:px-6">
               <div className="flex items-start justify-between gap-5">
                 <div className="min-w-0">
                   <FieldTitle>Let students check each section</FieldTitle>
                   <p className="mt-1 text-pretty text-[12.5px] leading-5 text-muted-foreground">
-                    A “Check section” button marks what they have answered so far as right
-                    or wrong, without showing the answers, so they can fix mistakes before
-                    moving on. Turn it off for a set you want answered once, like a test.
+                    Students can check and retry answers before moving on. Disable for a test.
                   </p>
                 </div>
                 <Switch
@@ -451,42 +485,11 @@ export function DraftReview({
 
           {generationActivity}
 
-          {draft.publication ? (
-            <section className="grid gap-3">
-              <SectionHeading
-                title="Published"
-                description="Edits save straight to the live student assignment."
-              />
-              <div className="panel grid gap-3 px-5 py-5 xl:px-6">
-                <AttachToMiroButton
-                  boards={assignedBoards}
-                  title={draft.title}
-                  summary={draft.summary}
-                  shareUrl={buildShareUrl(draft.publication.shareToken)}
-                />
-              </div>
-            </section>
-          ) : (
-            /* Publishing itself lives in the header. This says what the button
-               up there will do, which the button alone cannot. */
-            <p className="text-pretty text-[12.5px] leading-5 text-muted-foreground">
-              Nothing is shared yet. Publishing creates the student link and lets you set a
-              due date.
-            </p>
-          )}
+          <p className="text-pretty text-[12.5px] leading-5 text-muted-foreground">
+            {draft.publication ? "Edits save straight to the live student assignment." : "Nothing is shared yet. Publish when the activities are ready to share."}
+          </p>
 
-          <div>
-            <Button
-              variant="destructive"
-              size="sm"
-              onClick={() => {
-                setDeleteError(null);
-                setIsDeleteDialogOpen(true);
-              }}
-            >
-              <Trash2 size={14} aria-hidden /> Delete this homework
-            </Button>
-          </div>
+
 
           <section className="grid gap-3">
             <SectionHeading
@@ -761,7 +764,7 @@ function DraftPageHeader({ action }: { action?: ReactNode }) {
 /**
  * The section the student actually meets, drawn whole: every activity in it, in
  * order, in the same frame they use. The teacher still edits one activity at a
- * time — the selected one carries the Claude island — but they read it in the
+ * time — the selected one carries the inline editor — but they read it in the
  * run it belongs to, because a ten-sentence section walked one screen at a time
  * hides the very thing a teacher checks: whether the ten are any good together.
  */
@@ -789,7 +792,7 @@ function SectionPreview({
   referenceRules: ReferenceRule[];
   /** Whether the student's own "Check section" button appears on this screen. */
   isSelfCheckEnabled: boolean;
-  /** The activity the Claude island edits, always one inside this section. */
+  /** The activity the inline editor edits, always one inside this section. */
   selectedQuestion: DraftQuestion;
   mode: PreviewMode;
   homeworkTitle: string;
@@ -819,9 +822,8 @@ function SectionPreview({
         </span>
       }
       className="min-h-[40rem]"
-      /* Room for the island, which floats above the footer over the last
-         activity in a long section. */
-      bodyClassName="pb-24"
+      /* Editing stays in the selected activity’s document flow. */
+      bodyClassName="pb-6"
       /* Everything the student's screen carries, in the order they meet it. */
       aside={referenceRules.length > 0 ? <ReferenceRules rules={referenceRules} /> : null}
       /* The same heading treatment the student gets, from the same component. */
@@ -834,20 +836,6 @@ function SectionPreview({
         />
       }
       instructions={section.task}
-      floatingPanel={
-        <div className="mx-auto max-w-[42rem]">
-          <ClaudeQuestionIsland
-            key={selectedQuestion._id}
-            homeworkDraftId={homeworkDraftId}
-            homeworkTitle={homeworkTitle}
-            homeworkSummary={homeworkSummary}
-            question={toHomeworkQuestion(selectedQuestion)}
-            questionId={selectedQuestion._id}
-            neighboringPrompts={neighboringPrompts}
-            onApply={onApplyClaudeRevision}
-          />
-        </div>
-      }
       back={
         <Button
           variant="ghost"
@@ -886,6 +874,12 @@ function SectionPreview({
             sectionTask={section.task}
             mode={mode}
             isSelected={question._id === selectedQuestion._id}
+            editor={question._id === selectedQuestion._id ? (
+              <QuestionEditor key={question._id} homeworkDraftId={homeworkDraftId}
+                homeworkTitle={homeworkTitle} homeworkSummary={homeworkSummary}
+                question={toHomeworkQuestion(question)} questionId={question._id}
+                neighboringPrompts={neighboringPrompts} onApply={onApplyClaudeRevision} />
+            ) : null}
             onSelect={() =>
               onSelectQuestionIndex(section.firstActivityNumber - 1 + positionInSection)
             }
@@ -898,7 +892,7 @@ function SectionPreview({
 
 /**
  * One activity inside the previewed section. Selecting it is what points the
- * Claude island at it, so the whole row is a target rather than a small handle:
+ * inline editor at it, so the whole row is a target rather than a small handle:
  * a teacher who spots the weak sentence should be able to click the sentence.
  */
 function PreviewActivity({
@@ -908,6 +902,7 @@ function PreviewActivity({
   mode,
   isSelected,
   onSelect,
+  editor,
 }: {
   question: DraftQuestion;
   number: number;
@@ -916,6 +911,7 @@ function PreviewActivity({
   mode: PreviewMode;
   isSelected: boolean;
   onSelect: () => void;
+  editor: ReactNode;
 }) {
   /**
    * The same conversion the student's assignment goes through, not a copy of it.
@@ -951,13 +947,13 @@ function PreviewActivity({
           {number}.
         </span>
         <div className="min-w-0">
-          {/* The prompt is the handle: clicking it aims the Claude island here. */}
+          {/* The prompt is the handle: clicking it aims the inline editor here. */}
           <button
             type="button"
             onClick={onSelect}
             className="block w-full rounded-lg text-left outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
-            <PromptContent prompt={question.prompt} size="sm" headingLevel={4} />
+            <div className="flex items-start justify-between gap-3"><PromptContent prompt={question.prompt} size="sm" headingLevel={4} /><span className="shrink-0 rounded-full bg-muted px-2.5 py-1 text-[11px] font-medium text-muted-foreground">{isSelected ? "Editing" : "Edit"}</span></div>
           </button>
           {/* The section's task line is already above every activity here. */}
           {question.instructions && question.instructions !== sectionTask ? (
@@ -973,6 +969,7 @@ function PreviewActivity({
             />
           </div>
           {mode === "answer" ? <AnswerKey question={question} /> : null}
+          {editor}
         </div>
       </div>
     </li>
@@ -1098,10 +1095,10 @@ function DraftReviewSkeleton() {
       role="status"
       aria-busy="true"
       aria-label="Loading draft"
-      className="mx-auto w-full max-w-[1580px] px-6 py-8 lg:px-10 xl:py-10 2xl:px-12"
+      className="mx-auto w-full max-w-[1280px] px-6 py-8 lg:px-10 xl:py-10"
     >
       <Skeleton className="mb-5 h-7 w-24 rounded-2xl" />
-      <div className="grid gap-10 xl:grid-cols-[minmax(0,0.85fr)_minmax(0,1fr)] 2xl:gap-14">
+      <div className="grid gap-6 lg:grid-cols-[260px_minmax(0,1fr)] xl:grid-cols-[300px_minmax(0,1fr)] xl:gap-8">
         <div className="grid content-start gap-7">
           <div className="grid gap-3">
             <Skeleton className="h-4 w-28" />

@@ -122,12 +122,12 @@ function ReviewRow({ item, step }: { item: ReviewItem; step: number }) {
     <article
       className={cn("overflow-hidden rounded-xl border bg-card", styles.border)}
     >
-      <div className="flex items-start gap-3 px-4 py-3.5">
+      <div className="grid grid-cols-[20px_minmax(0,1fr)] items-start gap-3 px-4 py-3.5 sm:flex">
         <span className="mt-0.5 w-5 shrink-0 font-mono text-[12px] text-ink-secondary numeric">
           {step}.
         </span>
         <div className="min-w-0 flex-1">
-          <PromptContent prompt={readableTaskText(item)} size="sm" />
+          <PromptContent prompt={readableTaskText(item)} size="sm" headingLevel={3} />
           {/* The set heading already carries its task line. */}
           {item.instructions && item.instructions !== item.set?.task ? (
             <p className="mt-1.5 text-pretty text-[12.5px] leading-5 text-ink-muted">
@@ -156,15 +156,15 @@ function ReviewRow({ item, step }: { item: ReviewItem; step: number }) {
             )}
           </div>
         </div>
-        <div className="flex shrink-0 flex-col items-end gap-1">
+        <div className="col-start-2 flex shrink-0 gap-2 sm:flex-col sm:items-end sm:gap-1">
           <span
             className={cn("font-mono text-[10.5px] uppercase tracking-[0.12em]", styles.text)}
           >
             {VERDICT_LABELS[verdict]}
           </span>
-          <span className="font-mono text-[11px] text-ink-muted numeric">
+          {item.correctness !== "pending_review" && item.correctness !== undefined ? <span className="font-mono text-[11px] text-ink-muted numeric">
             {item.pointsAwarded}/{item.points}
-          </span>
+          </span> : null}
         </div>
       </div>
 

@@ -1,10 +1,10 @@
 import { useConvex, useMutation } from "convex/react";
 import { useQuery } from "convex-helpers/react/cache";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { api } from "@convex/_generated/api";
 import type { Id } from "@convex/_generated/dataModel";
-import { readClaudeModel } from "@/claude/claude-model-preference";
+import { DEFAULT_CLAUDE_MODEL } from "@/shared/claude";
 import { getDesktopBridge } from "@/claude/desktop-bridge";
 
 /**
@@ -22,6 +22,9 @@ export function useAutomaticSummaries({ isClaudeReady }: { isClaudeReady: boolea
   const awaiting = useQuery(api.feed.awaitingSummary, isClaudeReady ? {} : "skip");
   const attachAiSummary = useMutation(api.submissions.attachAiSummary);
   const isSummarizing = useRef(false);
+  const [completedAttempts, setCompletedAttempts] = useState(0);
+  const mountedRef = useRef(true);
+  useEffect(() => { mountedRef.current = true; return () => { mountedRef.current = false; }; }, []);
   /** Never retried in a loop: a submission Claude cannot summarise is skipped. */
   const failedSubmissions = useRef(new Set<string>());
 
@@ -36,7 +39,6 @@ export function useAutomaticSummaries({ isClaudeReady }: { isClaudeReady: boolea
     );
     if (!next) return;
 
-    let isActive = true;
     isSummarizing.current = true;
 
     void (async function summarise() {
@@ -44,9 +46,9 @@ export function useAutomaticSummaries({ isClaudeReady }: { isClaudeReady: boolea
         const summaryInput = await convex.query(api.feed.summaryInput, {
           submissionId: next.submissionId as Id<"submissions">,
         });
-        if (!summaryInput) return;
+        if (!summaryInput) { failedSubmissions.current.add(next.submissionId); return; }
         const result = await bridge.summarizeSubmission({
-          model: readClaudeModel(),
+          model: DEFAULT_CLAUDE_MODEL,
           requestId: crypto.randomUUID(),
           ...summaryInput,
         });
@@ -59,16 +61,10 @@ export function useAutomaticSummaries({ isClaudeReady }: { isClaudeReady: boolea
         failedSubmissions.current.add(next.submissionId);
       } finally {
         isSummarizing.current = false;
-        // The subscription updating is what schedules the next one, so nothing
-        // here needs to loop.
-        if (!isActive) return;
+        if (mountedRef.current) setCompletedAttempts((count) => count + 1);
       }
     })();
-
-    return () => {
-      isActive = false;
-    };
-  }, [attachAiSummary, awaiting, convex, isClaudeReady]);
+  }, [attachAiSummary, awaiting, completedAttempts, convex, isClaudeReady]);
 
   return {
     pendingCount: awaiting?.length ?? 0,

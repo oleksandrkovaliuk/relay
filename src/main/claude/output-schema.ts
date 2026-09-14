@@ -3,9 +3,19 @@ import { z } from "zod";
 import {
   boardAttachmentSchema,
   homeworkDraftSchema,
+  homeworkQuestionSchema,
+  questionSetSchema,
+  referenceRuleSchema,
   questionRewriteOutputSchema,
   submissionSummarySchema,
 } from "@/shared/claude";
+
+// Old drafts may predate sections. New generations must supply the teaching
+// structure rather than relying on optional fields and prompt instructions.
+export const generatedHomeworkSchema = homeworkDraftSchema.extend({
+  questions: z.array(homeworkQuestionSchema.safeExtend({ set: questionSetSchema })).min(1).max(130),
+  referenceRules: z.array(referenceRuleSchema).min(3).max(5),
+});
 
 function toClaudeCompatibleSchema(schema: z.ZodType) {
   const { $schema: _unsupportedMetaschema, ...jsonSchema } = z.toJSONSchema(schema, {
@@ -60,7 +70,7 @@ function jsonCandidates(result: string) {
 }
 
 export function createHomeworkOutputSchema() {
-  return toClaudeCompatibleSchema(homeworkDraftSchema);
+  return toClaudeCompatibleSchema(generatedHomeworkSchema);
 }
 
 export function createSummaryOutputSchema() {

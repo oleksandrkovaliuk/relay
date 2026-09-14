@@ -455,9 +455,19 @@ function QuestionRunner({
   const hasAnythingToCheck = section.questions.some((question) =>
     hasAnyAnswer(responseFor(question)),
   );
-  const openSections = answeredSections.flatMap((isAnswered, sectionIndex) =>
-    isAnswered ? [] : [sectionIndex + 1],
-  );
+  /**
+   * What is still open, and how much of it. "This section is not finished" is
+   * not believable on a screen that looks answered — a passage with one gap left
+   * of six reads as done — so the count travels with the section it belongs to.
+   */
+  const openSections = sections.flatMap((candidate, sectionIndex) => {
+    if (answeredSections[sectionIndex]) return [];
+    const unansweredCount = candidate.questions.filter((question) => {
+      const saved = responses[question._id];
+      return !(saved && isAnswerComplete(saved, question.content));
+    }).length;
+    return [{ step: sectionIndex + 1, unansweredCount }];
+  });
   const isSectionComplete = answeredSections[index] ?? false;
   const isSectionCheckable = section.questions.some(
     (question) => question.content.kind !== "open_response",
@@ -782,7 +792,7 @@ function SectionActivity({
       <span className="mt-0.5 font-mono text-[12.5px] text-ink-muted numeric">{number}.</span>
       <div className="min-w-0">
         <div className="flex items-start justify-between gap-3">
-          <PromptContent prompt={question.prompt} size="sm" className="min-w-0 flex-1" />
+          <PromptContent prompt={question.prompt} size="sm" headingLevel={2} className="min-w-0 flex-1" />
           {verdict ? (
             <span
               className={cn(
@@ -874,7 +884,7 @@ function SkippedSectionsNotice({
   isBusy,
   onGoToSection,
 }: {
-  sections: number[];
+  sections: { step: number; unansweredCount: number }[];
   isBusy: boolean;
   onGoToSection: (step: number) => void;
 }) {
@@ -884,10 +894,11 @@ function SkippedSectionsNotice({
         {sections.length} {sections.length === 1 ? "section is" : "sections are"} not finished.
       </p>
       <p className="mt-1 text-[13px] leading-5 text-ink-secondary">
-        You can go back to them, or submit as it is.
+        You can go back to {sections.length === 1 ? "it" : "them"}, or submit your homework as it
+        is.
       </p>
       <ul className="mt-3 flex flex-wrap gap-1.5">
-        {sections.map((step) => (
+        {sections.map(({ step, unansweredCount }) => (
           <li key={step}>
             <button
               type="button"
@@ -896,6 +907,9 @@ function SkippedSectionsNotice({
               className="min-h-9 rounded-lg border border-border bg-card px-3 text-[13px] font-medium text-ink numeric outline-none transition-[background-color,border-color] duration-150 hover:border-input hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-55"
             >
               Section {step}
+              <span className="ml-1.5 font-normal text-ink-secondary">
+                &middot; {unansweredCount} {unansweredCount === 1 ? "activity" : "activities"} left
+              </span>
             </button>
           </li>
         ))}

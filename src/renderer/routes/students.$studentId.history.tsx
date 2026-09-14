@@ -15,6 +15,7 @@ export const Route = createFileRoute("/students/$studentId/history")({
     typeof search.submission === "string"
       ? { submission: search.submission as Id<"submissions"> }
       : {},
+  remountDeps: ({ params }) => params,
   component: StudentHistoryRoute,
 });
 
@@ -32,6 +33,7 @@ function StudentHistoryRoute() {
         description="Every answer as the student left it, marked where Relay could mark it."
       />
       <SubmissionReview
+        key={studentId}
         studentId={studentId as Id<"students">}
         submissionId={submission ?? null}
         focusStep={null}

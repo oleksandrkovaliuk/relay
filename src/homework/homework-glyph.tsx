@@ -1,6 +1,7 @@
 import type { CSSProperties } from "react";
 
-import { RelayMark } from "@/components/relay-logo";
+import { Notebook01Icon } from "@hugeicons/core-free-icons";
+import { HugeiconsIcon } from "@hugeicons/react";
 import { cn } from "@/lib/utils";
 
 /**
@@ -49,12 +50,12 @@ export function HomeworkGlyph({
       style={style}
       className={cn(
         "grid shrink-0 place-items-center border border-(--glyph-color)/25 text-(--glyph-color)",
-        "bg-[color-mix(in_oklab,var(--glyph-color)_10%,var(--card))]",
+        "bg-[color-mix(in_oklab,var(--glyph-color)_12%,var(--card))] shadow-[inset_0_1px_0_#ffffff55,0_2px_3px_-2px_#00000020]",
         box,
         className,
       )}
     >
-      <RelayMark size={mark} />
+      <HugeiconsIcon icon={Notebook01Icon} size={mark} strokeWidth={1.6} />
     </span>
   );
 }

@@ -92,7 +92,9 @@ export const completeQuestionRewrite = mutation({
   returns: v.null(),
   handler: async (ctx, args) => {
     const user = await requireCurrentUser(ctx);
-    requireOwned(await ctx.db.get("aiJobs", args.aiJobId), user._id, "AI job not found.");
+    const job = requireOwned(await ctx.db.get("aiJobs", args.aiJobId), user._id, "AI job not found.");
+    if (job.kind !== "question_rewrite") throw new Error("Not a revision job.");
+    if (job.status !== "pending" && job.status !== "running") return null;
     await ctx.db.patch("aiJobs", args.aiJobId, {
       status: "completed",
       completedAt: Date.now(),
@@ -104,12 +106,20 @@ export const completeQuestionRewrite = mutation({
 
 /** Applied or discarded: either way the job has served its purpose. */
 export const dismissJob = mutation({
-  args: { aiJobId: v.id("aiJobs") },
+  args: { aiJobId: v.id("aiJobs"), outcome: v.optional(v.union(v.literal("applied"), v.literal("discarded"))) },
   returns: v.null(),
   handler: async (ctx, args) => {
     const user = await requireCurrentUser(ctx);
     const aiJob = await ctx.db.get("aiJobs", args.aiJobId);
-    if (aiJob?.ownerId === user._id) await ctx.db.delete("aiJobs", args.aiJobId);
+    if (aiJob?.ownerId !== user._id) return null;
+    if (args.outcome === "applied" && aiJob.kind === "question_rewrite" && aiJob.status === "completed") {
+      const profile = await ctx.db.query("teacherProfile").withIndex("by_ownerId", (q) => q.eq("ownerId", user._id)).unique();
+      const instruction = aiJob.title.trim().slice(0, 600);
+      const appliedEditInstructions = [instruction, ...(profile?.appliedEditInstructions ?? []).filter((previous) => previous.toLowerCase() !== instruction.toLowerCase())].filter(Boolean).slice(0, 8);
+      if (profile) await ctx.db.patch("teacherProfile", profile._id, { appliedEditInstructions, updatedAt: Date.now() });
+      if (!profile) await ctx.db.insert("teacherProfile", { ownerId: user._id, styleNotes: "", appliedEditInstructions, updatedAt: Date.now() });
+    }
+    await ctx.db.delete("aiJobs", aiJob._id);
     return null;
   },
 });
@@ -182,6 +192,7 @@ export const createHomeworkGeneration = mutation({
     requestId: v.string(),
     title: v.string(),
     studentId: v.optional(v.id("students")),
+    studentIds: v.optional(v.array(v.id("students"))),
     inputSnapshot: v.string(),
   },
   returns: v.id("aiJobs"),
@@ -189,6 +200,10 @@ export const createHomeworkGeneration = mutation({
     const user = await requireCurrentUser(ctx);
     if (args.studentId) {
       requireOwned(await ctx.db.get("students", args.studentId), user._id, "Student not found.");
+    }
+    if ((args.studentIds?.length ?? 0) > 200) throw new Error("Too many students.");
+    for (const studentId of args.studentIds ?? []) {
+      requireOwned(await ctx.db.get("students", studentId), user._id, "Student not found.");
     }
     const existingJob = await ctx.db
       .query("aiJobs")
@@ -204,6 +219,7 @@ export const createHomeworkGeneration = mutation({
       kind: "homework_generation",
       status: "pending",
       ...(args.studentId ? { studentId: args.studentId } : {}),
+      ...(args.studentIds ? { studentIds: [...new Set(args.studentIds)] } : {}),
       title: args.title,
       inputSnapshot: args.inputSnapshot,
       provider: "claude_code",
@@ -449,5 +465,16 @@ export const listRecent = query({
       ...(job.errorMessage ? { errorMessage: job.errorMessage } : {}),
       createdAt: job.createdAt,
     }));
+  },
+});
+
+export const generationContext = query({
+  args: { homeworkDraftId: v.id("homeworkDrafts") },
+  returns: v.union(v.string(), v.null()),
+  handler: async (ctx, args) => {
+    const user = await requireCurrentUser(ctx);
+    const draft = requireOwned(await ctx.db.get("homeworkDrafts", args.homeworkDraftId), user._id, "Homework not found.");
+    const job = await ctx.db.get("aiJobs", draft.aiJobId);
+    return job?.ownerId === user._id ? job.inputSnapshot : null;
   },
 });

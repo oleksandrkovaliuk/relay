@@ -101,7 +101,7 @@ export function InsightsView({
   }, [search.section]);
 
   return (
-    <div className="mx-auto grid w-full max-w-[1480px] gap-8 px-6 pb-16 pt-5 lg:px-10 xl:gap-9 xl:pt-6">
+    <div className="mx-auto grid w-full max-w-[1280px] gap-8 px-6 pb-16 pt-5 lg:px-10 xl:gap-9 xl:pt-6">
       <InsightsFilterBar search={search} now={now} onChange={onSearchChange} />
 
       <section

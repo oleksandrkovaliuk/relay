@@ -332,9 +332,15 @@ export const getDraft = query({
       .first();
     const ownedAssignment = assignment?.ownerId === user._id ? assignment : null;
     const ownedStudent = student?.ownerId === user._id ? student : null;
+    const generationJob = await ctx.db.get("aiJobs", draft.aiJobId);
+    const selectedIds = generationJob?.ownerId === user._id ? (generationJob.studentIds ?? []) : [];
+    const selectedStudents = await Promise.all(selectedIds.map((studentId) => ctx.db.get("students", studentId)));
+    const briefStudents = selectedStudents.filter((student) => student?.ownerId === user._id).map((student) => ({ _id: student!._id, name: student!.name }));
     const assignedStudents = ownedAssignment
       ? await loadAssignedStudents(ctx, ownedAssignment._id, ownedAssignment.studentId)
-      : ownedStudent
+      : briefStudents.length > 0
+        ? briefStudents
+        : ownedStudent
         ? [{ _id: ownedStudent._id, name: ownedStudent.name }]
         : [];
     return {

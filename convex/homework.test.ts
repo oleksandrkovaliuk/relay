@@ -1623,3 +1623,64 @@ function correctResponseFor(question: PublicQuestion) {
   }
   return { kind: "text" as const, text: "My written answer." };
 }
+
+describe("homework context continuity", () => {
+  test("includes each selected learner and rejects another teacher's learner", async () => {
+    const store = convexTest(schema, modules);
+    const backend = store.withIdentity(teacherIdentity("teacher-primary"));
+    await backend.mutation(api.users.ensureCurrent);
+    const first = await backend.mutation(api.students.create, { name: "First learner", contextNotes: "A1 adult. Practise station requests." });
+    const second = await backend.mutation(api.students.create, { name: "Second learner", contextNotes: "A2 adult. Question order needs support." });
+    const context = await backend.query(api.teaching.learnerContext, { studentIds: [first, second, first] });
+    expect(context.studentContext).toContain("A1 adult");
+    expect(context.studentContext).toContain("A2 adult");
+    expect(context.studentContext.match(/Learner /g)).toHaveLength(2);
+    expect(context.recentPerformance).toContain("No recent submitted work");
+    const outsider = store.withIdentity(teacherIdentity("other-teacher"));
+    await outsider.mutation(api.users.ensureCurrent);
+    await expect(outsider.query(api.teaching.learnerContext, { studentIds: [first] })).rejects.toThrow();
+  });
+
+  test("recovers original brief and group assignees after background generation", async () => {
+    const store = convexTest(schema, modules);
+    const backend = store.withIdentity(teacherIdentity("teacher-primary"));
+    await backend.mutation(api.users.ensureCurrent);
+    const students = await Promise.all(["Learner One", "Learner Two"].map((name) => backend.mutation(api.students.create, { name, contextNotes: "A1 travel" })));
+    const { aiJobId, homeworkDraftId } = await createUnpublishedDraft(backend);
+    const snapshot = JSON.stringify({ lessonNotes: "Train tickets", difficulty: "beginner", studentContext: "A1 travel" });
+    await backend.run(async (ctx) => { await ctx.db.patch("aiJobs", aiJobId, { studentIds: students, inputSnapshot: snapshot }); });
+    expect(await backend.query(api.aiJobs.generationContext, { homeworkDraftId })).toBe(snapshot);
+    const draft = await backend.query(api.assignments.getDraft, { homeworkDraftId });
+    expect(draft?.assignedStudents.map((student) => student._id)).toEqual(students);
+    const outsider = store.withIdentity(teacherIdentity("context-outsider"));
+    await outsider.mutation(api.users.ensureCurrent);
+    await expect(outsider.query(api.aiJobs.generationContext, { homeworkDraftId })).rejects.toThrow();
+  });
+
+  test("cancelled revisions cannot be resurrected by a late Claude result", async () => {
+    const store = convexTest(schema, modules);
+    const backend = store.withIdentity(teacherIdentity("teacher-primary"));
+    await backend.mutation(api.users.ensureCurrent);
+    const { homeworkDraftId } = await createUnpublishedDraft(backend);
+    const draft = await backend.query(api.assignments.getDraft, { homeworkDraftId });
+    const aiJobId = await backend.mutation(api.aiJobs.createQuestionRewrite, { requestId: "cancelled-rewrite", homeworkDraftId, questionId: draft!.questions[0]!._id, title: "Simplify", inputSnapshot: "{}" });
+    await backend.mutation(api.aiJobs.markRunning, { aiJobId });
+    await backend.mutation(api.aiJobs.finishWithError, { aiJobId, status: "cancelled", errorMessage: "Stopped" });
+    await backend.mutation(api.aiJobs.completeQuestionRewrite, { aiJobId, resultSnapshot: "{}" });
+    expect(await backend.query(api.aiJobs.listRewrites, { homeworkDraftId })).toEqual([]);
+  });
+
+  test("learns only applied edits and keeps them after the revision job is dismissed", async () => {
+    const store = convexTest(schema, modules);
+    const backend = store.withIdentity(teacherIdentity("teacher-primary"));
+    await backend.mutation(api.users.ensureCurrent);
+    const { homeworkDraftId } = await createUnpublishedDraft(backend);
+    const draft = await backend.query(api.assignments.getDraft, { homeworkDraftId });
+    const aiJobId = await backend.mutation(api.aiJobs.createQuestionRewrite, { requestId: "learn-style", homeworkDraftId, questionId: draft!.questions[0]!._id, title: "Use a natural mini-dialogue", inputSnapshot: "{}" });
+    expect((await backend.query(api.teaching.styleProfile, {})).editInstructions).toEqual([]);
+    await backend.mutation(api.aiJobs.completeQuestionRewrite, { aiJobId, resultSnapshot: "{}" });
+    await backend.mutation(api.aiJobs.dismissJob, { aiJobId, outcome: "applied" });
+    expect((await backend.query(api.teaching.styleProfile, {})).editInstructions).toEqual(["Use a natural mini-dialogue"]);
+    expect(await backend.query(api.aiJobs.listRewrites, { homeworkDraftId })).toEqual([]);
+  });
+});

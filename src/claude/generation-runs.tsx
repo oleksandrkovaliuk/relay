@@ -5,7 +5,7 @@ import { api } from "@convex/_generated/api";
 import type { Id } from "@convex/_generated/dataModel";
 import type { GenerateHomeworkInput, HomeworkDraft } from "@/shared/claude";
 import { describeClaudeRuntimeEvent } from "./claude-activity";
-import { readClaudeModel } from "./claude-model-preference";
+import { DEFAULT_CLAUDE_MODEL } from "@/shared/claude";
 import { getDesktopBridge } from "./desktop-bridge";
 
 type StartGenerationInput = Omit<GenerateHomeworkInput, "requestId" | "model">;
@@ -15,7 +15,7 @@ type GenerationRuns = {
    * Starts a generation and returns once it is recorded, not once it finishes:
    * the caller is free to navigate away immediately.
    */
-  start: (input: StartGenerationInput, meta: { title: string; studentId?: Id<"students"> }) => Promise<void>;
+  start: (input: StartGenerationInput, meta: { title: string; studentId?: Id<"students">; studentIds?: Id<"students">[] }) => Promise<void>;
 };
 
 const GenerationRunsContext = createContext<GenerationRuns | null>(null);
@@ -35,7 +35,7 @@ export function GenerationRunsProvider({ children }: { children: ReactNode }) {
   const recordProgress = useMutation(api.aiJobs.recordProgress);
   const convex = useConvex();
   /** requestId → the job its runtime events belong to. */
-  const runsRef = useRef(new Map<string, { aiJobId: Id<"aiJobs">; activityCount: number }>());
+  const runsRef = useRef(new Map<string, { aiJobId: Id<"aiJobs">; activityCount: number; latestProgress?: string }>());
 
   useEffect(function mirrorRuntimeProgressOntoJobs() {
     const bridge = getDesktopBridge();
@@ -48,6 +48,9 @@ export function GenerationRunsProvider({ children }: { children: ReactNode }) {
        * emits almost no events. Every one that does arrive is worth showing.
        */
       const update = describeClaudeRuntimeEvent(event);
+      const progressKey = `${update.kind}:${update.label}:${update.detail ?? ""}`;
+      if (run.latestProgress === progressKey) return;
+      run.latestProgress = progressKey;
       run.activityCount += 1;
       void recordProgress({
         aiJobId: run.aiJobId,
@@ -82,7 +85,7 @@ export function GenerationRunsProvider({ children }: { children: ReactNode }) {
   const start = useCallback(
     async function start(
       input: StartGenerationInput,
-      meta: { title: string; studentId?: Id<"students"> },
+      meta: { title: string; studentId?: Id<"students">; studentIds?: Id<"students">[] },
     ) {
       const bridge = getDesktopBridge();
       if (!bridge) throw new Error("Homework generation runs in the desktop app.");
@@ -93,11 +96,11 @@ export function GenerationRunsProvider({ children }: { children: ReactNode }) {
        * the moment a run starts, and a live subscription would re-render every
        * page in the app whenever the teacher edits an activity.
        */
-      const teachingStyle = await convex.query(api.teaching.styleProfile, {}).catch(() => null);
+      const teachingStyle = await convex.query(api.teaching.styleProfile, {});
       const request: GenerateHomeworkInput = {
         ...input,
         requestId,
-        model: readClaudeModel(),
+        model: DEFAULT_CLAUDE_MODEL,
         ...(teachingStyle ? { teachingStyle } : {}),
       };
       // Recorded before the request starts, so the work is visible from the
@@ -106,6 +109,7 @@ export function GenerationRunsProvider({ children }: { children: ReactNode }) {
         requestId,
         title: meta.title,
         ...(meta.studentId ? { studentId: meta.studentId } : {}),
+        ...(meta.studentIds ? { studentIds: meta.studentIds } : {}),
         inputSnapshot: JSON.stringify(request),
       });
       runsRef.current.set(requestId, { aiJobId, activityCount: 1 });

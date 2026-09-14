@@ -1,5 +1,6 @@
 import { Link } from "@tanstack/react-router";
-import { useMutation } from "convex/react";
+import { ArrowUpRight, Clock3 } from "lucide-react";
+import { useConvex, useMutation } from "convex/react";
 import { useQuery } from "convex-helpers/react/cache";
 
 import { api } from "@convex/_generated/api";
@@ -9,6 +10,7 @@ import type { ClaudeActivityKind } from "@/claude/claude-activity";
 import { SectionHeading } from "@/components/section-heading";
 import { Button } from "@/components/ui/button";
 import { HomeworkGlyph } from "@/homework/homework-glyph";
+import { prewarmSubmissionDetail } from "@/lib/convex-query-warmup";
 import { useNow } from "@/lib/use-now";
 import { cn, formatElapsedSeconds, formatRelativeTime } from "@/lib/utils";
 
@@ -42,6 +44,7 @@ const ACTIVITY_KINDS: readonly ClaudeActivityKind[] = [
  * a row apart under the same heading and the same "live" count.
  */
 export function InProgressHomework() {
+  const convex = useConvex();
   const activeJobs = useQuery(api.aiJobs.listActive);
   const inProgress = useQuery(api.feed.inProgress);
   const finishJob = useMutation(api.aiJobs.finishWithError);
@@ -69,17 +72,17 @@ export function InProgressHomework() {
   return (
     <div className="grid gap-8">
     {jobs.length > 0 ? (
-    <section className="status-enter grid gap-3">
+    <section className="grid gap-4">
       <SectionHeading
-        title="Being written"
-        description="Claude is drafting these. Nothing is shared until you review one."
+        title="In progress"
+        description="Drafts and activity edits being prepared for your review."
         action={
           <span className="text-[13px] text-muted-foreground numeric">
             {runningJobs > 0 ? `${runningJobs} running` : `${jobs.length} to clear`}
           </span>
         }
       />
-      <div className="panel divide-y divide-border/70 overflow-hidden">
+      <div className="grid gap-3">
         {jobs.map((job) => {
           const elapsedMilliseconds = Math.max(0, now - (job.startedAt ?? job.createdAt));
           const hasFailed = job.status === "failed";
@@ -87,13 +90,14 @@ export function InProgressHomework() {
           const activity = job.latestActivity;
 
           return (
-            <article key={job._id} className="grid gap-2 px-4 py-3.5 xl:px-5">
-              <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+            <article key={job._id} className="panel grid gap-4 px-5 py-5 xl:px-6">
+              <div className="flex flex-wrap items-center gap-3">
+                <HomeworkGlyph id={job._id} />
                 {/* An activity edit runs on the same runtime as a generation, so
                     it belongs in the same list — labelled for what it is. */}
                 <span
                   className={cn(
-                    "shrink-0 rounded-full px-2 py-0.5 text-[10.5px] font-semibold uppercase tracking-[0.08em]",
+                    "shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium",
                     hasFailed
                       ? "bg-critical-soft text-destructive"
                       : job.kind === "question_rewrite"
@@ -101,18 +105,19 @@ export function InProgressHomework() {
                         : "bg-primary-soft text-primary",
                   )}
                 >
-                  {hasFailed ? "Failed" : job.kind === "question_rewrite" ? "Edit" : "New"}
+                  {hasFailed ? "Needs attention" : job.kind === "question_rewrite" ? "Revising activity" : "Drafting"}
                 </span>
-                <p className="min-w-0 flex-1 truncate text-[13.5px] font-medium tracking-[-0.01em]">
+                <p className="min-w-0 flex-1 text-pretty text-[15px] font-semibold tracking-[-0.015em]">
                   {job.title}
                 </p>
                 {hasFailed ? null : (
-                  <p className="shrink-0 text-[12px] text-muted-foreground numeric">
+                  <p className="flex shrink-0 items-center gap-1.5 text-[12px] text-muted-foreground numeric">
+                    <Clock3 size={13} aria-hidden />
                     {formatElapsedSeconds(Math.floor(elapsedMilliseconds / 1_000))}
                   </p>
                 )}
                 {isStalled || hasFailed ? (
-                  <Button variant="ghost" size="xs" onClick={() => void dismiss(job._id)}>
+                  <Button variant="ghost" size="lg" onClick={() => void dismiss(job._id)}>
                     Dismiss
                   </Button>
                 ) : null}
@@ -128,6 +133,7 @@ export function InProgressHomework() {
                 </p>
               ) : (
                 <ClaudeActivityRow
+                  className="border-t border-border/60 pt-3 [&>span:nth-child(2)]:whitespace-normal"
                   kind={toActivityKind(activity?.kind)}
                   label={activity?.label ?? "Queued on the local Claude runtime"}
                   /**
@@ -152,36 +158,36 @@ export function InProgressHomework() {
     ) : null}
 
     {attempts.length > 0 ? (
-    <section className="status-enter grid gap-3">
+    <section className="grid gap-4">
       <SectionHeading
-        title="With students now"
-        description="Attempts a student has open. You are watching, not editing."
+        title="Students working"
+        description="Follow their progress and open an attempt to see the answers so far."
         action={
           <span className="text-[13px] text-muted-foreground numeric">
             {attempts.length} {attempts.length === 1 ? "student" : "students"}
           </span>
         }
       />
-      <div className="panel divide-y divide-border/70 overflow-hidden">
+      <div className="grid gap-3">
         {attempts.map((attempt) => {
           const currentStep = Math.min(attempt.answeredCount + 1, attempt.questionCount);
           return (
             <article
               key={attempt.submissionId}
-              className="group/row relative flex items-center gap-3 px-4 py-3 transition-colors duration-150 hover:bg-muted/35 xl:px-5"
+              className="panel relative flex flex-wrap items-center gap-4 px-5 py-5 transition-colors duration-150 hover:bg-muted/20 xl:px-6"
             >
               <Link
                 to="/submissions/$submissionId"
                 params={{ submissionId: attempt.submissionId }}
+                onPointerEnter={() => prewarmSubmissionDetail(convex, attempt.submissionId)}
+                onFocus={() => prewarmSubmissionDetail(convex, attempt.submissionId)}
                 aria-label={`Open ${attempt.studentName}'s attempt at ${attempt.assignmentTitle}`}
                 className="absolute inset-0 z-0 outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
               />
               <HomeworkGlyph id={attempt.assignmentId} />
-              <div className="pointer-events-none min-w-0 flex-1">
-                <p className="truncate text-[14px] font-medium tracking-[-0.01em]">
-                  {attempt.studentName}
-                  <span className="text-muted-foreground"> · {attempt.assignmentTitle}</span>
-                </p>
+              <div className="pointer-events-none min-w-40 flex-1">
+                <p className="text-pretty text-[15px] font-semibold tracking-[-0.015em]">{attempt.assignmentTitle}</p>
+                <p className="mt-1 text-[13px] text-secondary-foreground">{attempt.studentName}</p>
                 <p className="mt-0.5 truncate text-[12px] text-muted-foreground numeric">
                   {attempt.questionCount > 0
                     ? `On step ${currentStep} of ${attempt.questionCount}`
@@ -190,12 +196,17 @@ export function InProgressHomework() {
                   {attempt.activeMinutes > 0 ? ` · ${attempt.activeMinutes} min active` : ""}
                 </p>
               </div>
-              <ProgressPips answered={attempt.answeredCount} total={attempt.questionCount} />
+              <div className="pointer-events-none grid w-28 gap-2">
+                <span className="text-[12px] text-muted-foreground numeric">{attempt.answeredCount} / {attempt.questionCount} answered</span>
+                <progress aria-label={`${attempt.studentName}'s progress`} value={attempt.answeredCount} max={Math.max(1, attempt.questionCount)} className="h-1.5 w-full overflow-hidden rounded-full [&::-webkit-progress-bar]:bg-muted [&::-webkit-progress-value]:rounded-full [&::-webkit-progress-value]:bg-primary" />
+              </div>
               {attempt.questionCount > 0 ? (
                 <Button
                   variant="outline"
-                  size="sm"
-                  className="relative z-10 shrink-0 opacity-0 transition-opacity duration-150 focus-visible:opacity-100 group-hover/row:opacity-100"
+                  size="lg"
+                  className="relative z-10 shrink-0"
+                  onPointerEnter={() => prewarmSubmissionDetail(convex, attempt.submissionId)}
+                  onFocus={() => prewarmSubmissionDetail(convex, attempt.submissionId)}
                   nativeButton={false}
                   render={
                     <Link
@@ -205,7 +216,7 @@ export function InProgressHomework() {
                     />
                   }
                 >
-                  Go to step {currentStep}
+                  View progress <ArrowUpRight size={14} aria-hidden />
                 </Button>
               ) : null}
             </article>
@@ -222,28 +233,6 @@ function describeExpectedWait(kind: "homework_generation" | "question_rewrite") 
   return kind === "question_rewrite"
     ? "Usually under a minute"
     : "Usually 1–3 minutes — you can carry on working";
-}
-
-/** How far in they are, at a glance — the same rail the student is looking at. */
-function ProgressPips({ answered, total }: { answered: number; total: number }) {
-  if (total === 0) return null;
-  return (
-    <span
-      aria-hidden
-      className="pointer-events-none hidden shrink-0 items-center gap-1 sm:flex"
-    >
-      {Array.from({ length: Math.min(total, 12) }, (_, index) => (
-        <span
-          key={index}
-          className={
-            index < answered
-              ? "block h-1.5 w-1.5 rounded-full bg-primary"
-              : "block h-1.5 w-1.5 rounded-full bg-foreground/15"
-          }
-        />
-      ))}
-    </span>
-  );
 }
 
 /** The stored kind is a plain string, so narrow it without asserting. */
