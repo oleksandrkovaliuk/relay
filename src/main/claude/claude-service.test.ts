@@ -2,6 +2,15 @@ import { tmpdir } from "node:os";
 import { expect, it, vi } from "vitest";
 import type { query } from "@anthropic-ai/claude-agent-sdk";
 
+/**
+ * Resolution is stubbed because a configured path that does not exist is discarded in
+ * favour of a real `claude` on PATH — so this passed on a developer's machine and failed
+ * on CI, where there is no Claude Code to fall back to.
+ */
+vi.mock("./resolve-claude-executable", () => ({
+  resolveClaudeExecutable: () => "/test/claude",
+}));
+
 import { ClaudeService } from "./claude-service";
 
 it.each([undefined, "claude-sonnet-5", "claude-haiku-4-5"] as const)(
