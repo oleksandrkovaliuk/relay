@@ -15,6 +15,7 @@ export const Route = createFileRoute("/submissions/$submissionId")({
     const step = Number(search.step);
     return Number.isInteger(step) && step > 0 ? { step } : {};
   },
+  remountDeps: ({ params }) => params,
   component: SubmissionReviewRoute,
 });
 
@@ -40,6 +41,7 @@ function SubmissionReviewRoute() {
         description="Every answer as the student left it, marked where Relay could mark it."
       />
       <SubmissionReview
+        key={submissionId}
         studentId={null}
         submissionId={submissionId as Id<"submissions">}
         focusStep={step ?? null}

@@ -1,6 +1,8 @@
+import { useConvex } from "convex/react";
+import { Link } from "@tanstack/react-router";
 import { useQuery } from "convex-helpers/react/cache";
 import { ArrowRight, ExternalLink } from "lucide-react";
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useState, useDeferredValue } from "react";
 
 import { api } from "@convex/_generated/api";
 import type { Id } from "@convex/_generated/dataModel";
@@ -9,9 +11,6 @@ import { PageHeader } from "@/app/workspace-shell";
 import { SectionHeading } from "@/components/section-heading";
 import { Button } from "@/components/ui/button";
 import {
-  Field,
-  FieldDescription,
-  FieldLabel,
   FieldTitle,
 } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
@@ -25,7 +24,6 @@ import {
 import { StudentMultiPicker } from "@/homework/assignment/student-multi-picker";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Switch } from "@/components/ui/switch";
-import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import {
   ACTIVITY_TYPES,
@@ -67,7 +65,6 @@ const MAXIMUM_FOCUS_AREAS = 5;
 export function HomeworkBuilder({
   availability,
   initialStudentId,
-  onOpenClaudeSetup,
   onGenerationStarted,
   startFresh = false,
 }: {
@@ -79,6 +76,8 @@ export function HomeworkBuilder({
   startFresh?: boolean;
 }) {
   const students = useQuery(api.students.list);
+  const convex = useConvex();
+  const teachingStyle = useQuery(api.teaching.styleProfile, {});
   const { start: startGeneration } = useGenerationRuns();
 
   const [initialSnapshot] = useState(() =>
@@ -87,11 +86,7 @@ export function HomeworkBuilder({
   const [studentIds, setStudentIds] = useState<Id<"students">[]>(
     initialStudentId ? [initialStudentId] : initialSnapshot.studentIds,
   );
-  /**
-   * Personal context only applies when the homework is for one learner. With
-   * several assignees the set has to stand on its own, so nobody's errors — or
-   * name — end up written into it.
-   */
+  /** One selected board can supply a lesson; every selected learner supplies context. */
   const studentId = studentIds.length === 1 ? (studentIds[0] ?? null) : null;
   const [lessonNotes, setLessonNotes] = useState(initialSnapshot.lessonNotes);
   const [targetSkills, setTargetSkills] = useState(initialSnapshot.targetSkills);
@@ -108,6 +103,9 @@ export function HomeworkBuilder({
   const student = students?.find((candidate) => candidate._id === studentId) ?? null;
   const history = useQuery(api.students.history, studentId ? { studentId } : "skip");
   const recentHistorySummary = summarizeHistory(history);
+  const deferredNotes = useDeferredValue(lessonNotes);
+  const deferredSkills = useDeferredValue(targetSkills);
+  const selectedStudents = students?.filter((candidate) => studentIds.includes(candidate._id)) ?? [];
 
   useEffect(function adoptStudentFromCaller() {
     if (initialStudentId) setStudentIds([initialStudentId]);
@@ -136,7 +134,7 @@ export function HomeworkBuilder({
   const hasBriefSource =
     lessonNotes.trim().length > 0 ||
     Boolean(miroBoardUrl) ||
-    Boolean(student?.contextNotes.trim());
+    selectedStudents.some((candidate) => candidate.contextNotes.trim());
   const hasActivityPlan = activityPlan.length > 0;
   const isPlanTooLarge =
     activityPlan.reduce((total, entry) => total + entry.itemCount, 0) > MAXIMUM_PLANNED_ITEMS;
@@ -154,14 +152,15 @@ export function HomeworkBuilder({
    * there when it is done.
    */
   async function generate() {
-    const recentPerformance = summarizeHistory(history);
+    if (!canGenerate) return;
     setError(null);
     setIsSubmitting(true);
     try {
+      const learnerContext = await convex.query(api.teaching.learnerContext, { studentIds });
       await startGeneration(
         {
-          ...(student ? { studentName: student.name, studentContext: student.contextNotes } : {}),
-          ...(recentPerformance ? { recentPerformance } : {}),
+          ...(student ? { studentName: student.name } : {}),
+          ...learnerContext,
           lessonNotes,
           ...(miroBoardUrl ? { miroBoardUrl } : {}),
           targetSkills: parseSkills(targetSkills),
@@ -171,6 +170,7 @@ export function HomeworkBuilder({
         {
           title: student ? `Homework for ${student.name}` : "Homework",
           ...(studentId ? { studentId } : {}),
+          studentIds,
         },
       );
       // The brief has been handed over, so the next visit starts from a blank
@@ -186,236 +186,52 @@ export function HomeworkBuilder({
 
   return (
     <>
-      {/* The review step brings its own header, so this one belongs to the
-          brief only — two page titles must never stack. */}
-      <PageHeader
-        title="Build homework"
-        description="Shape the brief and preview the student experience as you go."
-      />
-    <div className="mx-auto grid max-w-[1580px] gap-10 px-6 py-8 lg:px-10 xl:py-10 2xl:grid-cols-[minmax(0,0.85fr)_minmax(0,1fr)] 2xl:gap-14 2xl:px-12">
-      <div className="grid content-start gap-6">
-        <SectionHeading
-          title="Assignment brief"
-          description="Add the lesson context once. Every generated activity is reviewable before anything is shared."
-          action={
-            <span className="text-[13px] text-muted-foreground">Brief · Review · Publish</span>
-          }
-        />
-
-        <div className="panel divide-y divide-border/70 overflow-hidden">
-          <BriefRow
-            title="Students"
-            description="Optional. Several assignees keep the set reusable and send it to all of them."
-          >
-            <StudentMultiPicker
-              students={students ?? []}
-              value={studentIds}
-              onValueChange={setStudentIds}
-            />
-            {/* The effect of picking a student is the least obvious thing on this
-                page, and it changes every activity that gets written. */}
-            <p className="mt-2 text-pretty text-[12.5px] leading-5 text-muted-foreground">
-              {student ? (
-                <>
-                  <span className="font-medium text-foreground">
-                    This homework is written around {student.name}.
-                  </span>{" "}
-                  Their saved context and recent results shape what each activity targets.
-                  The set stays reusable — nothing names them.
-                </>
-              ) : studentIds.length > 1 ? (
-                <>
-                  <span className="font-medium text-foreground">
-                    Written for {studentIds.length} students.
-                  </span>{" "}
-                  With more than one assignee the set stands on its own, so no personal
-                  context is used.
-                </>
-              ) : (
-                "Pick one student and the homework is generated from their saved context and recent results. Pick several, or none, and it is written from the lesson brief alone."
-              )}
+      <PageHeader title="New homework" description="Add lesson notes, select students, and choose the activities." action={<Button size="lg" disabled={!canGenerate} onClick={() => void generate()}>{isSubmitting ? "Starting…" : "Generate draft"}<ArrowRight size={16} aria-hidden /></Button>} />
+      {/* The same page frame as every other page, so the header's action lands
+          over the right edge of the form instead of beyond it. */}
+      <div className="mx-auto w-full max-w-[1280px] px-6 pb-16 pt-6 lg:px-10">
+        <div className="overflow-hidden rounded-2xl border border-border bg-card shadow-sm focus-within:border-input">
+          <label htmlFor="builder-lesson-notes" className="block px-5 pt-5 text-sm font-medium">Lesson notes</label>
+          <textarea id="builder-lesson-notes" rows={4} maxLength={MAXIMUM_LESSON_NOTES_LENGTH}
+            value={lessonNotes} onChange={(event) => setLessonNotes(event.target.value)}
+            placeholder="What did you cover? Add examples, vocabulary, or anything that needs more practice."
+            className="min-h-32 w-full resize-y bg-transparent px-5 pb-4 pt-3 text-[14px] leading-6 outline-none placeholder:text-muted-foreground/70"
+          />
+          <div className="flex flex-wrap items-end gap-4 border-t border-border/60 bg-muted/20 px-5 py-4">
+            <div className="min-w-52 flex-1"><p className="mb-2 text-xs font-medium">Students<span className="ml-1 font-normal text-muted-foreground">optional</span></p><StudentMultiPicker students={students ?? []} value={studentIds} onValueChange={setStudentIds} /></div>
+            <div><label htmlFor="builder-difficulty" className="mb-2 block text-xs font-medium">Level</label><Select value={difficulty} onValueChange={(value) => setDifficulty(value as Difficulty)}>
+              <SelectTrigger aria-label="Homework level" id="builder-difficulty" className="w-auto min-w-40 rounded-xl border-border bg-card shadow-none data-[size=default]:h-11"><SelectValue>{DIFFICULTY_LABELS[difficulty]}</SelectValue></SelectTrigger>
+              <SelectContent align="start"><SelectItem value="beginner">Beginner</SelectItem><SelectItem value="intermediate">Intermediate</SelectItem><SelectItem value="advanced">Advanced</SelectItem></SelectContent>
+            </Select></div>
+          </div>
+        </div>
+        <div className="mt-3 flex flex-wrap items-center justify-between gap-2 px-2 text-[12px] text-muted-foreground">
+          <span>{isSubmitting ? "Preparing your draft…" : "You can edit the draft before publishing."}</span>
+          <Link to="/settings" className="inline-flex items-center gap-1.5 rounded-md hover:text-foreground">{teachingStyle?.styleNotes.trim() ? "Your teaching style is included" : "Add your teaching preferences"}</Link>
+        </div>
+        {error ? <p role="alert" className="mt-4 rounded-xl bg-critical-soft p-4 text-sm text-destructive">{error}</p> : null}
+        <div className="mt-8 grid gap-6">
+          {student ? <StudentContextDisclosure key={student._id} contextNotes={student.contextNotes} isHistoryLoading={history === undefined} miroBoardUrl={student.miroBoardUrl} recentHistorySummary={recentHistorySummary} /> : null}
+          {studentIds.length > 1 ? <div className="rounded-2xl bg-muted/50 px-5 py-4 text-[13px] leading-6"><span className="font-medium">Personalised for {studentIds.length} students.</span> Their saved context and recent results shape the shared practice. Names stay out of the worksheet.</div> : null}
+          {student?.miroBoardUrl ? <MiroBriefToggle studentName={student.name} miroBoardUrl={student.miroBoardUrl} isEnabled={useMiroBrief} onEnabledChange={setUseMiroBrief} /> : null}
+          <div className="flex flex-wrap items-center gap-3 rounded-2xl bg-muted/40 px-5 py-4">
+            <label htmlFor="builder-skills" className="text-xs font-medium">Focus skills<span className="ml-1 font-normal text-muted-foreground">optional</span></label>
+            <Input id="builder-skills" value={targetSkills} onChange={(event) => setTargetSkills(event.target.value)} placeholder="e.g. past tense, asking questions, travel" className="h-11 min-w-52 flex-1 rounded-xl border-0 bg-card" />
+          </div>
+          <section>
+            <SectionHeading title="Activities" description="Select types and item counts. Use Example to try a format." />
+            <div className="mt-4"><ActivityTypePicker plan={activityPlan} onChange={setActivityPlan} previewed={previewedActivityType} onPreview={setPreviewedActivityType} /></div>
+          </section>
+          {previewedActivityType ? <BuilderPreview studentName={student?.name ?? null} lessonNotes={deferredNotes} targetSkills={deferredSkills} activityPlan={activityPlan} difficulty={difficulty} isGenerating={isSubmitting} previewedActivityType={previewedActivityType} onPreviewActivityType={setPreviewedActivityType} /> : null}
+          <div className="flex flex-wrap items-center justify-between gap-4 border-t border-border pt-6">
+            <p className="max-w-lg text-[12.5px] leading-5 text-muted-foreground">
+              {availability === null ? "Checking Claude…" : !availability.isAuthenticated ? availability.problem ?? "Connect Claude in Settings to generate homework." : !hasActivityPlan ? "Choose at least one activity type to continue." : isPlanTooLarge ? `Keep this set within ${MAXIMUM_PLANNED_ITEMS} practice items.` : !hasBriefSource ? "Add lesson notes, or choose a student with saved context." : difficulty === "beginner" ? "Beginner: natural language, worked examples, and thoughtful practice with support." : "Ready to create a draft using your brief and selected context."}
             </p>
-            {student ? (
-              <StudentContextDisclosure
-                key={student._id}
-                contextNotes={student.contextNotes}
-                isHistoryLoading={history === undefined}
-                miroBoardUrl={student.miroBoardUrl}
-                recentHistorySummary={recentHistorySummary}
-              />
-            ) : null}
-          </BriefRow>
-
-          <BriefRow
-            title="Lesson brief"
-            description="What the homework is about — the lesson itself, and where the learner got stuck."
-          >
-            {student?.miroBoardUrl ? (
-              <MiroBriefToggle
-                studentName={student.name}
-                miroBoardUrl={student.miroBoardUrl}
-                isEnabled={useMiroBrief}
-                onEnabledChange={setUseMiroBrief}
-              />
-            ) : null}
-            <Field className={student?.miroBoardUrl ? "mt-4" : undefined}>
-              <FieldLabel htmlFor="builder-lesson-notes">
-                {useMiroBrief && student?.miroBoardUrl ? "Extra details" : "Lesson notes"}
-              </FieldLabel>
-              <Textarea
-                id="builder-lesson-notes"
-                rows={6}
-                maxLength={MAXIMUM_LESSON_NOTES_LENGTH}
-                data-builder-control="lesson-notes"
-                value={lessonNotes}
-                onChange={(event) => setLessonNotes(event.target.value)}
-                placeholder={
-                  useMiroBrief && student?.miroBoardUrl
-                    ? "Anything the board does not say — where they hesitated, what to push harder on. This wins where it disagrees with the board."
-                    : "We practised travel stories and the past perfect. New words: platform, delayed, luggage. Mira keeps using the past simple for the earlier event."
-                }
-                className="min-h-32 text-[13.5px]"
-              />
-              <FieldDescription className="text-right numeric">
-                {lessonNotes.length.toLocaleString()} / {MAXIMUM_LESSON_NOTES_LENGTH.toLocaleString()}
-              </FieldDescription>
-            </Field>
-          </BriefRow>
-
-          <BriefRow
-            title="Skills to reinforce"
-            description="Optional comma-separated focus areas."
-          >
-            <Input
-              aria-label="Skills to reinforce"
-              value={targetSkills}
-              onChange={(event) => setTargetSkills(event.target.value)}
-              placeholder="past perfect, sequencing, travel vocabulary"
-             
-            />
-          </BriefRow>
-
-          <BriefRow title="Difficulty" description="The level the activities are written at.">
-            <Field>
-              <FieldLabel htmlFor="builder-difficulty" className="sr-only">
-                Difficulty
-              </FieldLabel>
-              <Select
-                value={difficulty}
-                onValueChange={(value) => setDifficulty(value as Difficulty)}
-              >
-                <SelectTrigger id="builder-difficulty" className="w-full sm:w-64">
-                  <SelectValue>{DIFFICULTY_LABELS[difficulty]}</SelectValue>
-                </SelectTrigger>
-                <SelectContent align="start">
-                  <SelectItem value="beginner">Beginner</SelectItem>
-                  <SelectItem value="intermediate">Intermediate</SelectItem>
-                  <SelectItem value="advanced">Advanced</SelectItem>
-                </SelectContent>
-              </Select>
-            </Field>
-          </BriefRow>
-
-          {/* The widget cards need the full column width: beside a label they
-              wrap to two words a line. */}
-          <BriefRow
-            isStacked
-            title="Activity types and length"
-            description={`Required. Only the types you pick are generated — nothing is invented around them. ${MINIMUM_ACTIVITY_ITEM_COUNT}–${MAXIMUM_ACTIVITY_ITEM_COUNT} items each; the length of the homework is what you ask for here.`}
-          >
-            <ActivityTypePicker
-              plan={activityPlan}
-              onChange={setActivityPlan}
-              previewed={previewedActivityType}
-              onPreview={setPreviewedActivityType}
-            />
-          </BriefRow>
-        </div>
-
-        {error ? (
-          <p
-            role="alert"
-            aria-live="polite"
-            className="status-enter rounded-xl border border-destructive/20 bg-critical-soft px-4 py-3.5 text-[13px] text-destructive"
-          >
-            {error}
-          </p>
-        ) : null}
-
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-3">
-          <Button size="xl" disabled={!canGenerate} onClick={() => void generate()}>
-            {isSubmitting ? "Starting…" : "Generate draft"}
-            <ArrowRight size={15} aria-hidden />
-          </Button>
-          <p
-            className={cn(
-              "max-w-md text-pretty text-[12.5px] leading-5 text-muted-foreground",
-              availability !== null && !availability.isAuthenticated && "text-destructive",
-            )}
-          >
-            {availability === null
-              ? "Checking the local Claude runtime…"
-              : !availability.isAuthenticated
-                ? (availability.problem ?? "Claude is unavailable.")
-                : !hasActivityPlan
-                  ? "Choose the activity types this homework should contain."
-                  : isPlanTooLarge
-                    ? `One homework holds at most ${MAXIMUM_PLANNED_ITEMS} practice items. Trim the counts, or split this into two sets.`
-                    : !hasBriefSource
-                      ? "Add a lesson brief, or pick a student whose saved context can stand in for one."
-                      : "Nothing is shared until you review and publish."}
-          </p>
-          {availability !== null && !availability.isAuthenticated && onOpenClaudeSetup ? (
-            <Button variant="outline" onClick={onOpenClaudeSetup}>
-              Set up Claude
-            </Button>
-          ) : null}
+            {availability !== null && !availability.isAuthenticated ? <Button variant="outline" size="lg" nativeButton={false} render={<Link to="/settings" />}>Connect Claude</Button> : null}
+          </div>
         </div>
       </div>
-
-      <BuilderPreview
-        studentName={student?.name ?? null}
-        lessonNotes={lessonNotes}
-        targetSkills={targetSkills}
-        activityPlan={activityPlan}
-        difficulty={difficulty}
-        isGenerating={isSubmitting}
-        previewedActivityType={previewedActivityType}
-        onPreviewActivityType={setPreviewedActivityType}
-      />
-    </div>
     </>
-  );
-}
-
-function BriefRow({
-  title,
-  description,
-  isStacked = false,
-  children,
-}: {
-  title: string;
-  description: string;
-  /** Puts the control under its label instead of beside it, for wide controls. */
-  isStacked?: boolean;
-  children: ReactNode;
-}) {
-  return (
-    <div
-      className={cn(
-        "grid gap-4 px-5 py-5 xl:gap-8 xl:px-6",
-        !isStacked && "xl:grid-cols-[minmax(0,15rem)_minmax(0,1fr)]",
-        isStacked && "xl:gap-4",
-      )}
-    >
-      <div className="min-w-0 xl:max-w-[46rem]">
-        <FieldTitle>{title}</FieldTitle>
-        <p className="mt-1 text-pretty text-[12.5px] leading-5 text-muted-foreground">
-          {description}
-        </p>
-      </div>
-      <div className="min-w-0">{children}</div>
-    </div>
   );
 }
 

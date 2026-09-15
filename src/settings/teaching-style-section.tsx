@@ -23,6 +23,7 @@ export function TeachingStyleSection() {
   const [draft, setDraft] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [hasSaved, setHasSaved] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(function adoptSavedNotes() {
     if (profile && draft === null) setDraft(profile.styleNotes);
@@ -33,10 +34,13 @@ export function TeachingStyleSection() {
 
   async function save() {
     setIsSaving(true);
+    setError(null);
     try {
       await setStyleNotes({ styleNotes: value });
       setHasSaved(true);
       window.setTimeout(() => setHasSaved(false), 2_000);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Could not save your teaching preferences.");
     } finally {
       setIsSaving(false);
     }
@@ -53,12 +57,13 @@ export function TeachingStyleSection() {
         onChange={(event) => setDraft(event.target.value)}
         className="min-h-28 text-[13.5px]"
       />
+      {error ? <p role="alert" className="text-xs text-destructive">{error}</p> : null}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <p className="text-pretty text-[12.5px] leading-5 text-muted-foreground">
           {profile && profile.editInstructions.length > 0
             ? `Relay also passes on the ${profile.editInstructions.length} ${
                 profile.editInstructions.length === 1 ? "change" : "changes"
-              } you last asked Claude for, so it stops making them.`
+              } you last applied. They guide relevant future edits.`
             : "Anything you write here goes into every generation and every activity edit."}
         </p>
         <Button size="sm" disabled={!isDirty || isSaving} onClick={() => void save()}>

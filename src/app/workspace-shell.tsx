@@ -29,9 +29,9 @@ const NAVIGATION = [
 const CONTROL_FEEDBACK =
   "transition-[background-color,color,transform] duration-150 active:scale-[.97] motion-reduce:active:scale-100";
 const SIDEBAR_ITEM =
-  "flex h-9 items-center gap-2.5 rounded-lg text-[13px] outline-none focus-visible:ring-2 focus-visible:ring-white/20";
+  "flex h-11 items-center gap-3 rounded-xl text-[14px] outline-none focus-visible:ring-2 focus-visible:ring-ring/40";
 const ACCOUNT_CONTROL =
-  "flex min-h-11 w-full min-w-0 max-w-full items-center gap-2.5 overflow-hidden rounded-lg text-left outline-none hover:bg-white/[0.05] focus-visible:ring-2 focus-visible:ring-white/20";
+  "flex min-h-11 w-full min-w-0 max-w-full items-center gap-2.5 overflow-hidden rounded-lg text-left outline-none hover:bg-foreground/[0.05] focus-visible:ring-2 focus-visible:ring-ring/40";
 const SIDEBAR_COLLAPSED_STORAGE_KEY = "relay:sidebar-collapsed:v1";
 
 export function WorkspaceShell({
@@ -78,12 +78,12 @@ export function WorkspaceShell({
         "grid h-screen bg-workspace-surface text-foreground antialiased transition-[grid-template-columns] duration-200 ease-[var(--ease-out)] motion-reduce:transition-none",
         isSidebarCollapsed
           ? "grid-cols-[72px_minmax(0,1fr)]"
-          : "grid-cols-[252px_minmax(0,1fr)]",
+          : "grid-cols-[232px_minmax(0,1fr)]",
       )}
     >
       <aside
         id="relay-sidebar"
-        className="drag-region relative z-30 flex min-h-0 flex-col overflow-hidden border-r border-white/[0.07] bg-workspace-sidebar text-white"
+        className="drag-region relative z-30 flex min-h-0 flex-col overflow-hidden border-r border-border/60 bg-workspace-sidebar text-foreground"
       >
         {/* macOS draws the traffic lights over the top-left of this row, so
             nothing interactive may sit there: the row is empty on the collapsed
@@ -141,14 +141,14 @@ export function WorkspaceShell({
           )}
         >
           {isSidebarCollapsed ? (
-            <Link to="/" aria-label="Relay home" className="grid size-8 place-items-center text-white">
+            <Link to="/" aria-label="Relay home" className="grid size-8 place-items-center text-foreground">
               <RelayMark size={20} />
             </Link>
           ) : (
             <>
               {/* Branding, not a control: the menu it used to open only repeated
                   links that are already on the rail. */}
-              <span className="flex select-none items-center gap-2 pl-1 text-white">
+              <span className="flex select-none items-center gap-2 pl-1 text-foreground">
                 <RelayMark size={24} />
                 <span className="text-[14px] font-semibold leading-none tracking-[-0.04em]">
                   Relay
@@ -185,12 +185,12 @@ export function WorkspaceShell({
                   "relative",
                   isSidebarCollapsed ? "justify-center px-0" : "justify-start px-3",
                 )}
-                activeProps={{ className: "bg-white/[0.07] text-white" }}
+                activeProps={{ className: "bg-foreground/[0.07] text-foreground" }}
                 inactiveProps={{
-                  className: "text-white/56 hover:bg-white/[0.04] hover:text-white/85",
+                  className: "text-foreground/56 hover:bg-foreground/[0.04] hover:text-foreground/85",
                 }}
               >
-                <HugeiconsIcon icon={icon} size={16} strokeWidth={1.7} aria-hidden />
+                <HugeiconsIcon icon={icon} size={20} strokeWidth={1.6} aria-hidden />
                 {isSidebarCollapsed ? null : (
                   <span className="flex-1 text-left">{label}</span>
                 )}
@@ -202,7 +202,7 @@ export function WorkspaceShell({
                         className="absolute right-1.5 top-1.5 size-1.5 rounded-full bg-emerald-400"
                       />
                     ) : (
-                      <span className="text-[11px] font-semibold text-emerald-300 numeric">
+                      <span className="text-[11px] font-semibold text-primary numeric">
                         {count > 99 ? "99+" : count}
                       </span>
                     )}
@@ -238,16 +238,16 @@ export function WorkspaceShell({
               isSidebarCollapsed ? "justify-center px-1" : "justify-start px-2.5",
             )}
             aria-label={`Signed in as ${describeTeacher(teacher).primary}. Open settings.`}
-            activeProps={{ className: "bg-white/[0.075]" }}
+            activeProps={{ className: "bg-foreground/[0.075]" }}
           >
             <TeacherAvatar teacher={teacher} />
             {isSidebarCollapsed ? null : (
               <span className="min-w-0 flex-1 overflow-hidden">
-                <span className="block truncate text-[12.5px] text-white/85">
+                <span className="block truncate text-[12.5px] text-foreground/85">
                   {describeTeacher(teacher).primary}
                 </span>
                 {describeTeacher(teacher).secondary ? (
-                  <span className="block truncate text-[11px] text-white/45">
+                  <span className="block truncate text-[11px] text-foreground/45">
                     {describeTeacher(teacher).secondary}
                   </span>
                 ) : null}
@@ -305,7 +305,7 @@ function SidebarIconButton({
       onClick={onClick}
       className={cn(
         CONTROL_FEEDBACK,
-        "no-drag grid size-8 place-items-center rounded-lg text-workspace-sidebar-icon outline-none hover:bg-white/[0.06] hover:text-white/80 focus-visible:ring-2 focus-visible:ring-white/20 disabled:pointer-events-none disabled:opacity-35",
+        "no-drag grid size-8 place-items-center rounded-lg text-workspace-sidebar-icon outline-none hover:bg-foreground/[0.06] hover:text-foreground/80 focus-visible:ring-2 focus-visible:ring-ring/40 disabled:pointer-events-none disabled:opacity-35",
       )}
     >
       {children}
@@ -332,7 +332,7 @@ function SidebarIconLink({
       title={label}
       className={cn(
         CONTROL_FEEDBACK,
-        "relative grid size-8 place-items-center rounded-lg text-workspace-sidebar-icon outline-none hover:bg-white/[0.06] hover:text-white/85 focus-visible:ring-2 focus-visible:ring-white/20",
+        "relative grid size-8 place-items-center rounded-lg text-workspace-sidebar-icon outline-none hover:bg-foreground/[0.06] hover:text-foreground/85 focus-visible:ring-2 focus-visible:ring-ring/40",
       )}
     >
       {children}
@@ -411,14 +411,14 @@ function TeacherAvatar({ teacher }: { teacher: Teacher }) {
         alt=""
         aria-hidden
         onError={() => setHasImageFailed(true)}
-        className="size-7 shrink-0 rounded-full object-cover ring-1 ring-white/15"
+        className="size-7 shrink-0 rounded-full object-cover ring-1 ring-border"
       />
     );
   }
   return (
     <span
       aria-hidden
-      className="grid size-7 shrink-0 place-items-center rounded-full bg-white/[0.09] text-[10.5px] font-semibold text-white/80"
+      className="grid size-7 shrink-0 place-items-center rounded-full bg-foreground/[0.09] text-[10.5px] font-semibold text-foreground/80"
     >
       {teacherInitials(teacher)}
     </span>
@@ -462,7 +462,7 @@ function ClaudeStatusLine({
       aria-label={label}
       className={cn(
         CONTROL_FEEDBACK,
-        "flex min-h-7 items-center gap-2 rounded-lg outline-none hover:bg-white/[0.05] focus-visible:ring-2 focus-visible:ring-white/20",
+        "flex min-h-7 items-center gap-2 rounded-lg outline-none hover:bg-foreground/[0.05] focus-visible:ring-2 focus-visible:ring-ring/40",
         isSidebarCollapsed ? "justify-center px-1" : "px-2.5",
       )}
     >
@@ -472,7 +472,7 @@ function ClaudeStatusLine({
           className={cn(
             "min-w-0 flex-1 truncate text-[11px]",
             // Only a state the teacher has to act on earns colour.
-            state === "ready" || state === "checking" ? "text-white/40" : "text-amber-300/90",
+            state === "ready" || state === "checking" ? "text-foreground/40" : "text-amber-600 dark:text-amber-300",
           )}
         >
           {label}
@@ -493,10 +493,10 @@ export function PageHeader({
   action?: ReactNode;
 }) {
   return (
-    <header className="drag-region sticky top-0 z-20 border-b border-border/60 bg-workspace-surface/90 backdrop-blur-xl">
-      <div className="mx-auto flex w-full max-w-[1480px] items-start justify-between gap-6 px-6 pb-5 pt-9 lg:px-10 xl:pb-6 xl:pt-10">
+    <header className="drag-region sticky top-0 z-20 bg-workspace-surface/95 backdrop-blur-md">
+      <div className="mx-auto flex w-full max-w-[1280px] flex-wrap items-start justify-between gap-x-6 gap-y-4 px-6 pb-5 pt-9 lg:px-10 xl:pb-6 xl:pt-10">
         <div className="min-w-0">
-          <h1 className="text-balance text-[22px] font-semibold leading-7 tracking-[-0.035em] xl:text-[24px] xl:leading-8">
+          <h1 className="text-balance text-[23px] font-medium leading-7 tracking-[-0.035em] xl:text-[24px] xl:leading-8">
             {title}
           </h1>
           <p className="mt-1 text-pretty text-[13px] leading-5 text-foreground/60 xl:text-[14px] xl:leading-6">

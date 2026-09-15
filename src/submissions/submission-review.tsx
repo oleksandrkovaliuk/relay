@@ -82,7 +82,10 @@ export function SubmissionReview({
       ? { submissionId: fallbackSubmissionId }
       : "skip",
   );
-  const detail = submissionId ? openDetail : fallbackDetail;
+  const selectedDetail = submissionId ? openDetail : fallbackDetail;
+  const detail = studentId && selectedDetail && selectedDetail.studentId !== studentId
+    ? null
+    : selectedDetail;
   const isLoadingHistory = Boolean(effectiveStudentId) && history === undefined;
   const hasEntry = Boolean(effectiveSubmissionId);
   const pageRef = useRef<HTMLDivElement>(null);

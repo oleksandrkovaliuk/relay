@@ -30,11 +30,17 @@ describe("createHomeworkOutputSchema", () => {
 
     expect(schema).toMatchObject({
       type: "object",
-      required: ["title", "summary", "estimatedMinutes", "learningObjectives", "questions"],
+      required: ["title", "summary", "estimatedMinutes", "learningObjectives", "referenceRules", "questions"],
     });
     expect(JSON.stringify(schema)).toContain("correctChoice");
     expect(JSON.stringify(schema)).toContain("acceptedAnswers");
     expect(JSON.stringify(schema)).toContain("pairs");
+    expect(schema).toMatchObject({
+      properties: {
+        questions: { items: { required: expect.arrayContaining(["set"]) } },
+        referenceRules: { minItems: 3, maxItems: 5 },
+      },
+    });
   });
 });
 

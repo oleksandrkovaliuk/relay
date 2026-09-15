@@ -4,6 +4,7 @@ import type { Id } from "@convex/_generated/dataModel";
 import { DraftReview } from "@/homework/review/draft-review";
 
 export const Route = createFileRoute("/homework/drafts/$homeworkDraftId")({
+  remountDeps: ({ params }) => params,
   component: DraftReviewRoute,
 });
 
@@ -14,6 +15,7 @@ function DraftReviewRoute() {
 
   return (
     <DraftReview
+        key={homeworkDraftId}
       homeworkDraftId={homeworkDraftId as Id<"homeworkDrafts">}
       onDiscarded={returnToLibrary}
       onPublished={returnToLibrary}

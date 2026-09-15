@@ -12,6 +12,7 @@ import { registerClaudeIpc } from "./claude/register-claude-ipc";
 import { resolveClaudeExecutable } from "./claude/resolve-claude-executable";
 import { resolveClerkFrontendApiHost } from "./clerk-frontend-api";
 import { createFileTokenStorage } from "./clerk-token-storage";
+import { guardDiagnosticStreams, logError, logWarning } from "./diagnostic-log";
 import { createExternalNavigationGuard } from "./external-navigation";
 import {
   withRendererCorsForNativeClerkResponse,
@@ -64,15 +65,15 @@ function createWindow() {
   });
 
   mainWindow.webContents.on("preload-error", (_event, preloadPath, error) => {
-    console.error(`Failed to load preload script at ${preloadPath}:`, error);
+    logError(`Failed to load preload script at ${preloadPath}:`, error);
   });
   mainWindow.webContents.on("console-message", (details) => {
     if (details.level === "warning" || details.level === "error") {
-      console.error(`Renderer: ${details.message}`);
+      logError(`Renderer: ${details.message}`);
     }
   });
   mainWindow.webContents.on("did-fail-load", (_event, errorCode, errorDescription) => {
-    console.error(`Renderer failed to load (${errorCode}): ${errorDescription}`);
+    logError(`Renderer failed to load (${errorCode}): ${errorDescription}`);
   });
   mainWindow.on("ready-to-show", () => {
     // electron-vite relaunches the app on every main or preload rebuild, and a
@@ -87,7 +88,7 @@ function createWindow() {
   const externalNavigation = createExternalNavigationGuard({ now: () => Date.now() });
   const openExternally = (url: string) => {
     if (!externalNavigation.shouldOpen(url)) {
-      console.warn(`Ignored a repeated request to open ${url} externally.`);
+      logWarning(`Ignored a repeated request to open ${url} externally.`);
       return;
     }
     void shell.openExternal(url);
@@ -173,6 +174,10 @@ const CLERK_FRONTEND_API_HOST = resolveClerkFrontendApiHost(
   import.meta.env.VITE_CLERK_PUBLISHABLE_KEY,
 );
 
+// Before anything can log: a packaged launch has no terminal behind its stdio, and an
+// unhandled stream error there is an uncaught exception of its own.
+guardDiagnosticStreams();
+
 // Brand the native menus without moving the local profiles created by earlier ERM builds.
 app.setName("Relay");
 // The dock and the About panel read these; without them a development run
@@ -230,7 +235,7 @@ function startPrimaryInstance() {
     app.setAppUserModelId("com.erm.teacher");
     registerRendererProtocol();
     if (CLERK_FRONTEND_API_HOST) registerClerkNativeTransport(CLERK_FRONTEND_API_HOST);
-    else console.error("Could not resolve Clerk's Frontend API host from the publishable key.");
+    else logError("Could not resolve Clerk's Frontend API host from the publishable key.");
     // In development the dock shows Electron's own icon unless it is replaced.
     const dockIcon = loadAppIcon();
     if (dockIcon && process.platform === "darwin") app.dock?.setIcon(dockIcon);

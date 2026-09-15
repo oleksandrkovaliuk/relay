@@ -2,13 +2,11 @@ import { v } from "convex/values";
 
 import { mutation, query, type QueryCtx } from "./_generated/server";
 import type { Id } from "./_generated/dataModel";
-import { requireCurrentUser } from "./auth";
+import { requireCurrentUser, requireOwned } from "./auth";
 
 /** Enough to show a pattern, few enough to leave room for the brief itself. */
-const MAX_EDIT_INSTRUCTIONS = 8;
 const MAX_KEPT_EXAMPLES = 3;
 const MAX_STYLE_NOTES_LENGTH = 4_000;
-const RECENT_JOB_SCAN = 40;
 const RECENT_ASSIGNMENT_SCAN = 6;
 
 export const styleProfileValidator = v.object({
@@ -40,7 +38,7 @@ export const styleProfile = query({
       .unique();
     return {
       styleNotes: profile?.styleNotes ?? "",
-      editInstructions: await recentEditInstructions(ctx, user._id),
+      editInstructions: profile?.appliedEditInstructions ?? [],
       keptExamples: await recentKeptPrompts(ctx, user._id),
     };
   },
@@ -72,31 +70,6 @@ export const setStyleNotes = mutation({
   },
 });
 
-/**
- * The instructions typed into "Ask Claude", newest first. The teacher wrote
- * these to correct an activity, so they read as standing preferences: "make the
- * distractors plausible", "shorter sentences", "use their own errors".
- */
-async function recentEditInstructions(ctx: QueryCtx, ownerId: Id<"users">) {
-  const jobs = await ctx.db
-    .query("aiJobs")
-    .withIndex("by_ownerId", (query) => query.eq("ownerId", ownerId))
-    .order("desc")
-    .take(RECENT_JOB_SCAN);
-  const instructions: string[] = [];
-  for (const job of jobs) {
-    if (job.kind !== "question_rewrite") continue;
-    const instruction = job.title.trim();
-    // Near-duplicates say nothing extra and crowd out older, different asks.
-    if (!instruction || instructions.some((seen) => seen.toLowerCase() === instruction.toLowerCase())) {
-      continue;
-    }
-    instructions.push(instruction);
-    if (instructions.length >= MAX_EDIT_INSTRUCTIONS) break;
-  }
-  return instructions;
-}
-
 /** Prompts from published sets: homework the teacher was happy to send. */
 async function recentKeptPrompts(ctx: QueryCtx, ownerId: Id<"users">) {
   const assignments = await ctx.db
@@ -120,3 +93,31 @@ async function recentKeptPrompts(ctx: QueryCtx, ownerId: Id<"users">) {
   }
   return prompts;
 }
+
+export const learnerContext = query({
+  args: { studentIds: v.array(v.id("students")) },
+  returns: v.object({ studentContext: v.string(), recentPerformance: v.string() }),
+  handler: async (ctx, args) => {
+    const user = await requireCurrentUser(ctx);
+    const studentIds = [...new Set(args.studentIds)];
+    if (studentIds.length > 200) throw new Error("Too many students.");
+    const contextBudget = Math.floor(18_000 / Math.max(1, studentIds.length));
+    const learners = await Promise.all(studentIds.map(async (studentId, index) => {
+      const student = requireOwned(await ctx.db.get("students", studentId), user._id, "Student not found.");
+      const submissions = await ctx.db.query("submissions")
+        .withIndex("by_studentId_and_startedAt", (q) => q.eq("studentId", studentId))
+        .order("desc").take(6);
+      const evidence = submissions.filter((submission) => submission.ownerId === user._id && submission.status === "submitted")
+        .slice(0, 3).map((submission) => {
+          const score = submission.maxAutoScore > 0 ? `${Math.round((submission.score ?? 0) / submission.maxAutoScore * 100)}% auto-graded` : "Written work; no automatic score";
+          return `${score}. ${submission.aiSummary?.text ?? ""} Focus: ${submission.aiSummary?.focusAreas.join(", ") || "No recorded focus areas"}`;
+        }).join("\n");
+      const label = `Learner ${index + 1}`;
+      return {
+        context: `${label}: ${student.contextNotes.trim() || "No saved context."}`.slice(0, contextBudget),
+        performance: `${label}: ${evidence || "No recent submitted work."}`.slice(0, contextBudget),
+      };
+    }));
+    return { studentContext: learners.map((learner) => learner.context).join("\n\n"), recentPerformance: learners.map((learner) => learner.performance).join("\n\n") };
+  },
+});

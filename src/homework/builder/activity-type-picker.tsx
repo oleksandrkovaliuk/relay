@@ -1,5 +1,6 @@
 import { Eye } from "lucide-react";
 
+import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
@@ -155,20 +156,22 @@ export function ActivityTypePicker({
                 />
               ) : null}
 
-              <button
+              <Button
                 type="button"
+                variant="ghost"
+                size="xs"
                 aria-pressed={isPreviewed}
                 aria-label={`Show an example ${label.toLowerCase()} activity`}
                 onClick={() => onPreview(activityType)}
                 className={cn(
                   /* Left edge of the text lines up with the description above it. */
-                  "ml-5 mt-1 flex min-h-7 items-center gap-1 rounded-lg px-1.5 text-[12px] font-medium outline-none transition-colors duration-150 hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring",
-                  isPreviewed ? "text-primary" : "text-muted-foreground hover:text-foreground",
+                  "ml-4 mt-1",
+                  isPreviewed ? "text-primary hover:text-primary" : "text-muted-foreground",
                 )}
               >
-                <Eye size={13} aria-hidden />
+                <Eye aria-hidden />
                 Example
-              </button>
+              </Button>
             </div>
           );
         })}

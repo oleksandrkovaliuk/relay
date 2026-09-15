@@ -1,7 +1,6 @@
-import { useMutation } from "convex/react";
+import { useConvex, useMutation } from "convex/react";
 import { useQuery } from "convex-helpers/react/cache";
 import {
-  Add01Icon,
   ArrowUpRight01Icon,
   CheckmarkCircle02Icon,
   ClipboardListIcon,
@@ -36,6 +35,7 @@ import {
 } from "@/components/ui/empty";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { prewarmHomeworkDraft } from "@/lib/convex-query-warmup";
 import { buildShareUrl } from "@/lib/share-links";
 import { HomeworkGlyph } from "@/homework/homework-glyph";
 import { initials } from "@/lib/utils";
@@ -61,6 +61,7 @@ export function HomeworkLibrary({
 }) {
   const assignments = useQuery(api.assignments.listPublished);
   const drafts = useQuery(api.assignments.listDrafts);
+  const convex = useConvex();
   const closeAssignment = useMutation(api.assignments.close);
   const removeHomework = useMutation(api.assignments.remove);
   const reopenAssignment = useMutation(api.assignments.reopen);
@@ -173,7 +174,7 @@ export function HomeworkLibrary({
   }
 
   return (
-    <div className="mx-auto grid max-w-[1480px] gap-8 px-6 py-8 lg:px-10 xl:gap-9 xl:py-10">
+    <div className="mx-auto grid max-w-[1280px] gap-8 px-6 py-8 lg:px-10 xl:gap-9 xl:py-10">
       <div className="flex flex-wrap items-center justify-between gap-4">
         <Tabs value={filter} onValueChange={(value) => setFilter(value as HomeworkFilter)}>
           <TabsList aria-label="Filter homework">
@@ -190,9 +191,7 @@ export function HomeworkLibrary({
           </TabsList>
         </Tabs>
 
-        <Button size="lg" onClick={onCreate}>
-          <HugeiconsIcon icon={Add01Icon} size={15} strokeWidth={2} aria-hidden /> New homework
-        </Button>
+
       </div>
 
       {/* Running generations and live attempts are the same question — what is
@@ -228,12 +227,12 @@ export function HomeworkLibrary({
 
       {visibleDrafts.length > 0 ? (
         <section className="grid gap-3">
-          <SectionHeading title="Drafts" />
-          <div className="panel divide-y divide-border/70 overflow-hidden">
+          <SectionHeading title="Drafts" description="Ready to review. Publish when you’re happy with the activities." />
+          <div className="grid gap-3">
             {visibleDrafts.map((draft) => (
               <article
                 key={draft._id}
-                className="group/row relative flex items-center gap-3 px-4 py-3 transition-colors duration-150 hover:bg-muted/35 xl:px-5"
+                className="panel relative flex flex-wrap items-center gap-3 px-5 py-5 transition-colors duration-150 hover:bg-muted/20 xl:px-6"
               >
                 {/* The row itself is the way in. The overlay carries the click so
                     the buttons beside it stay real buttons rather than nested
@@ -241,12 +240,14 @@ export function HomeworkLibrary({
                 <button
                   type="button"
                   aria-label={`Open ${draft.title}`}
+                  onPointerEnter={() => prewarmHomeworkDraft(convex, draft._id)}
+                  onFocus={() => prewarmHomeworkDraft(convex, draft._id)}
                   onClick={() => onOpenDraft(draft._id)}
                   className="absolute inset-0 z-0 outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
                 />
                 <HomeworkGlyph id={draft._id} />
-                <div className="pointer-events-none min-w-0 flex-1">
-                  <p className="truncate text-[14px] font-medium tracking-[-0.01em]">
+                <div className="pointer-events-none min-w-40 flex-1">
+                  <p className="text-pretty text-[15px] font-semibold tracking-[-0.01em]">
                     {draft.title}
                   </p>
                   <p className="mt-0.5 truncate text-[12px] text-muted-foreground numeric">
@@ -255,8 +256,8 @@ export function HomeworkLibrary({
                 </div>
                 <Button
                   variant="destructiveGhost"
-                  size="sm"
-                  className="relative z-10 shrink-0 opacity-0 transition-opacity duration-150 focus-visible:opacity-100 group-hover/row:opacity-100"
+                  size="lg"
+                  className="relative z-10 shrink-0"
                   onClick={() => {
                     setDeleteError(null);
                     setHomeworkToDelete({
@@ -269,9 +270,16 @@ export function HomeworkLibrary({
                   <HugeiconsIcon icon={Delete02Icon} size={14} strokeWidth={2} aria-hidden />
                   <span className="sr-only sm:not-sr-only">Delete</span>
                 </Button>
-                <span className="relative z-0 shrink-0 text-[12.5px] font-medium text-primary">
-                  Review
-                </span>
+                <Button
+                  variant="outline"
+                  size="lg"
+                  className="relative z-10"
+                  onPointerEnter={() => prewarmHomeworkDraft(convex, draft._id)}
+                  onFocus={() => prewarmHomeworkDraft(convex, draft._id)}
+                  onClick={() => onOpenDraft(draft._id)}
+                >
+                  Review draft <HugeiconsIcon icon={ArrowUpRight01Icon} size={14} strokeWidth={2} aria-hidden />
+                </Button>
               </article>
             ))}
           </div>
@@ -302,6 +310,8 @@ export function HomeworkLibrary({
                   <button
                     type="button"
                     aria-label={`Open ${assignment.title}`}
+                    onPointerEnter={() => prewarmHomeworkDraft(convex, assignment.homeworkDraftId)}
+                    onFocus={() => prewarmHomeworkDraft(convex, assignment.homeworkDraftId)}
                     onClick={() => onOpenDraft(assignment.homeworkDraftId)}
                     className="absolute inset-0 z-0 outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
                   />
@@ -527,11 +537,10 @@ function LoadingState() {
       role="status"
       aria-busy="true"
       aria-label="Loading homework"
-      className="mx-auto grid max-w-[1480px] gap-8 px-6 py-8 lg:px-10 xl:gap-9 xl:py-10"
+      className="mx-auto grid max-w-[1280px] gap-8 px-6 py-8 lg:px-10 xl:gap-9 xl:py-10"
     >
       <div className="flex flex-wrap items-center justify-between gap-4">
         <Skeleton className="h-9 w-[22rem] rounded-2xl" />
-        <Skeleton className="h-10 w-40 rounded-2xl" />
       </div>
       <section className="grid gap-3">
         <Skeleton className="h-4 w-24" />

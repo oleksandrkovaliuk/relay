@@ -15,6 +15,7 @@ import { useState, type ReactNode } from "react";
 
 import { api } from "@convex/_generated/api";
 import type { Id } from "@convex/_generated/dataModel";
+import { PageHeader } from "@/app/workspace-shell";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import {
@@ -120,18 +121,18 @@ export function StudentsView({
         if (nextOpen) setAddStudentTriggerId(eventDetails.trigger?.id ?? null);
       }}
     >
-      <div className="mx-auto w-full max-w-[1480px] px-6 py-6 lg:px-10 xl:py-8">
+      <PageHeader
+        title="Students"
+        description="Context, progress, and a clear next action for every learner."
+        action={
+          <DialogTrigger id={HEADER_ADD_STUDENT_TRIGGER_ID} render={<Button size="lg" />}>
+            <HugeiconsIcon icon={Add01Icon} size={15} strokeWidth={2} aria-hidden />
+            Add student
+          </DialogTrigger>
+        }
+      />
+      <div className="mx-auto w-full max-w-[1280px] px-6 py-6 lg:px-10 xl:py-8">
         <section className="grid gap-3" aria-label="Student profiles">
-          <div className="flex justify-end">
-            <DialogTrigger
-              id={HEADER_ADD_STUDENT_TRIGGER_ID}
-              render={<Button size="lg" />}
-            >
-              <HugeiconsIcon icon={Add01Icon} size={15} strokeWidth={2} aria-hidden />
-              Add student
-            </DialogTrigger>
-          </div>
-
           {students === undefined ? (
             <StudentCardsSkeleton />
           ) : students.length === 0 ? (
@@ -188,7 +189,10 @@ export function StudentsView({
                       prewarmStudentHistory(convex, student._id);
                       onOpenHistory(student._id);
                     }}
-                    onCreateHomework={() => onCreateHomework(student._id)}
+                    onCreateHomework={() => {
+                      prewarmStudentHistory(convex, student._id);
+                      onCreateHomework(student._id);
+                    }}
                     onDelete={() => {
                       setDeleteError(null);
                       setStudentToDelete(student);
@@ -349,7 +353,13 @@ function StudentCard({
             <HugeiconsIcon icon={ViewIcon} size={15} strokeWidth={2} aria-hidden />
             History
           </Button>
-          <Button size="lg" onClick={onCreateHomework}>
+          {/* The builder opens on this student's saved context and results. */}
+          <Button
+            size="lg"
+            onPointerEnter={onPrewarmHistory}
+            onFocus={onPrewarmHistory}
+            onClick={onCreateHomework}
+          >
             <HugeiconsIcon icon={AssignmentsIcon} size={15} strokeWidth={2} aria-hidden />
             Homework
           </Button>

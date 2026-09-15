@@ -126,7 +126,7 @@ describe("buildHomeworkPrompt", () => {
     expect(prompt).toContain("An open_response `prompt` must contain every sentence");
   });
 
-  it("demands a different situation behind every item in a section", () => {
+  it("varies the practice without forbidding a coherent situation", () => {
     const prompt = buildHomeworkPrompt({
       requestId: "request-8",
       lessonNotes: "Past perfect",
@@ -135,7 +135,7 @@ describe("buildHomeworkPrompt", () => {
       activityPlan: [{ type: "multiple_choice", itemCount: 10 }],
     });
 
-    expect(prompt).toContain("Ten items about one incident is one item written ten times");
+    expect(prompt).toContain("Items may share a coherent situation, but each must test a distinct example");
     expect(prompt).toContain("Never give two activities the same `prompt`");
     expect(prompt).toContain("Spread difficulty across the section");
   });
@@ -251,5 +251,25 @@ describe("buildQuestionRewritePrompt", () => {
     expect(prompt).toContain("Match the travel words.");
     expect(prompt).toContain("must directly implement the teacher's requested change");
     expect(prompt).toContain("Keep the current activity type unless the teacher explicitly asks");
+  });
+});
+
+describe("level and context continuity", () => {
+  it("scaffolds entry-level work without lowering quality or adding advanced grammar", () => {
+    const prompt = buildHomeworkPrompt({ requestId: "beginner-quality", lessonNotes: "Adult travel English: ask for a train ticket", studentContext: "Adult A1 learner. Needs help with polite requests.", difficulty: "beginner", targetSkills: ["polite requests"], activityPlan: [{ type: "multiple_choice", itemCount: 4 }] });
+    expect(prompt).toContain("Beginner means more scaffolding");
+    expect(prompt).toContain("worked example");
+    expect(prompt).toContain("Do not introduce advanced grammar");
+    expect(prompt).toContain("solve every activity independently");
+    expect(prompt).not.toContain("Make the set genuinely demanding");
+  });
+
+  it("carries the lesson, learner evidence and level into an activity revision", () => {
+    const prompt = buildQuestionRewritePrompt({ requestId: "context-rewrite", homeworkTitle: "Train tickets", homeworkSummary: "Polite requests", teacherInstruction: "Make the situation more natural", neighboringPrompts: [], context: { lessonNotes: "At a station ticket counter", studentContext: "Adult A1, confuses can and want", recentPerformance: "Needs support with question order", difficulty: "beginner", targetSkills: ["polite requests"] }, question: { id: "ticket", type: "short_answer", prompt: "Ask for a ticket to York.", instructions: "Write one polite request.", content: { kind: "open_response", expectedAnswer: "Can I have a ticket to York, please?" }, skillTags: ["polite-requests"], points: 1, difficulty: "easy", explanation: "Can I have… is a polite way to ask." } });
+    expect(prompt).toContain("At a station ticket counter");
+    expect(prompt).toContain("confuses can and want");
+    expect(prompt).toContain("Needs support with question order");
+    expect(prompt).toContain("Beginner means more scaffolding");
+    expect(prompt).toContain("Preserve the current section title");
   });
 });

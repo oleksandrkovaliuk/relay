@@ -1,13 +1,14 @@
 import { CrownIcon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { Link, useNavigate } from "@tanstack/react-router";
-import { useMutation } from "convex/react";
+import { useConvex, useMutation } from "convex/react";
 import { useQuery } from "convex-helpers/react/cache";
 import { ArrowRight, BookOpen, Clock3, Eye, Inbox, Star } from "lucide-react";
 import { useState } from "react";
 
 import { api } from "@convex/_generated/api";
 import type { Id } from "@convex/_generated/dataModel";
+import { prewarmSubmissionDetail } from "@/lib/convex-query-warmup";
 import { ScoreBar } from "@/components/score-bar";
 import { SectionHeading } from "@/components/section-heading";
 import { Button } from "@/components/ui/button";
@@ -21,7 +22,7 @@ import {
   initials,
   isSameDay,
 } from "@/lib/utils";
-import { readClaudeModel } from "@/claude/claude-model-preference";
+import { DEFAULT_CLAUDE_MODEL } from "@/shared/claude";
 import { getDesktopBridge } from "@/claude/desktop-bridge";
 import type { InsightSection } from "@/insights/insight-filter";
 import {
@@ -71,9 +72,13 @@ function useFeed() {
 export function TodayFeed({ now }: { now: number }) {
   const feed = useFeed();
   const navigate = useNavigate();
+  const convex = useConvex();
   /** Review is a place, not a panel: one surface, linkable, with room to read. */
   const openSubmission = (submissionId: Id<"submissions">) =>
     void navigate({ to: "/submissions/$submissionId", params: { submissionId } });
+  /** Reaching for a row is enough intent to start fetching what it opens. */
+  const prewarmSubmission = (submissionId: Id<"submissions">) =>
+    prewarmSubmissionDetail(convex, submissionId);
 
   if (feed === undefined) return <LoadingRow />;
 
@@ -98,7 +103,7 @@ export function TodayFeed({ now }: { now: number }) {
   );
 
   return (
-    <div className="mx-auto grid w-full max-w-[1480px] gap-7 px-6 py-6 lg:px-10 xl:gap-8 xl:py-8">
+    <div className="mx-auto grid w-full max-w-[1280px] gap-7 px-6 py-6 lg:px-10 xl:gap-8 xl:py-8">
       {/* One quiet line, not four tiles: on a normal morning three of them read
           zero, and counting zeroes is not the reason to open the app. */}
       <p className="-mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[12.5px] text-muted-foreground">
@@ -131,10 +136,12 @@ export function TodayFeed({ now }: { now: number }) {
           <MomentumHighlight
             student={highlightedStudent}
             onOpenSubmission={openSubmission}
+            onPrewarmSubmission={prewarmSubmission}
           />
           <StudentAttentionList
             students={studentsNeedingAttention}
             onOpenSubmission={openSubmission}
+            onPrewarmSubmission={prewarmSubmission}
           />
         </div>
       </section>
@@ -166,6 +173,7 @@ export function TodayFeed({ now }: { now: number }) {
                 item={item}
                 now={now}
                 onOpen={() => openSubmission(item.submissionId)}
+                onPrewarm={() => prewarmSubmission(item.submissionId)}
               />
             ))}
           </div>
@@ -371,9 +379,11 @@ function pluralize(count: number, singular: string) {
 function MomentumHighlight({
   student,
   onOpenSubmission,
+  onPrewarmSubmission,
 }: {
   student: StudentMomentum | null;
   onOpenSubmission: (submissionId: Id<"submissions">) => void;
+  onPrewarmSubmission: (submissionId: Id<"submissions">) => void;
 }) {
   if (!student) {
     return (
@@ -415,6 +425,8 @@ function MomentumHighlight({
         </div>
         <Button
           aria-label={`View ${student.name}'s latest work`}
+          onPointerEnter={() => onPrewarmSubmission(student.latestSubmissionId)}
+          onFocus={() => onPrewarmSubmission(student.latestSubmissionId)}
           onClick={() => onOpenSubmission(student.latestSubmissionId)}
           size="sm"
           variant="ghost"
@@ -439,9 +451,11 @@ function MomentumHighlight({
 function StudentAttentionList({
   students,
   onOpenSubmission,
+  onPrewarmSubmission,
 }: {
   students: StudentAttention[];
   onOpenSubmission: (submissionId: Id<"submissions">) => void;
+  onPrewarmSubmission: (submissionId: Id<"submissions">) => void;
 }) {
   return (
     <div className={PANEL_CLASS}>
@@ -491,7 +505,13 @@ function StudentAttentionList({
                 </div>
                 <Button
                   aria-label={`${actionLabel} ${student.name}'s relevant submission`}
-                          onClick={() =>
+                  onPointerEnter={() =>
+                    onPrewarmSubmission(student.actionableSubmission.submissionId)
+                  }
+                  onFocus={() =>
+                    onPrewarmSubmission(student.actionableSubmission.submissionId)
+                  }
+                  onClick={() =>
                     onOpenSubmission(student.actionableSubmission.submissionId)
                   }
                   size="sm"
@@ -512,17 +532,23 @@ function FeedCard({
   item,
   now,
   onOpen,
+  onPrewarm,
 }: {
   item: FeedItem;
   now: number;
   onOpen: () => void;
+  onPrewarm: () => void;
 }) {
   const percentage =
     item.maxAutoScore === 0 ? 0 : Math.round(((item.score ?? 0) / item.maxAutoScore) * 100);
   const isSubmitted = item.status === "submitted";
 
   return (
-    <article className="px-4 py-5 transition-colors duration-150 hover:bg-muted/30 sm:px-5 xl:px-6">
+    <article
+      onPointerEnter={onPrewarm}
+      onFocus={onPrewarm}
+      className="px-4 py-5 transition-colors duration-150 hover:bg-muted/30 sm:px-5 xl:px-6"
+    >
       <div className="grid grid-cols-[40px_minmax(0,1fr)_84px] items-start gap-x-3.5 xl:grid-cols-[44px_minmax(0,1fr)_96px] xl:gap-x-4">
         <span className="grid size-9 place-items-center rounded-full bg-muted text-[11px] font-semibold text-secondary-foreground xl:text-[11.5px]">
           {initials(item.studentName)}
@@ -616,12 +642,7 @@ function FeedCard({
 }
 
 function SummaryBlock({ item }: { item: FeedItem }) {
-  const summaryInput = useQuery(
-    api.feed.summaryInput,
-    item.status === "submitted" && !item.aiSummary
-      ? { submissionId: item.submissionId }
-      : "skip",
-  );
+  const convex = useConvex();
   const attachAiSummary = useMutation(api.submissions.attachAiSummary);
   const [isSummarizing, setIsSummarizing] = useState(false);
   const [isExpanded, setIsExpanded] = useState(false);
@@ -664,12 +685,13 @@ function SummaryBlock({ item }: { item: FeedItem }) {
       setError("Summaries need the desktop app.");
       return;
     }
-    if (!summaryInput) return;
     setIsSummarizing(true);
     setError(null);
     try {
+      const summaryInput = await convex.query(api.feed.summaryInput, { submissionId: item.submissionId });
+      if (!summaryInput) throw new Error("This submission is no longer available.");
       const result = await bridge.summarizeSubmission({
-        model: readClaudeModel(),
+        model: DEFAULT_CLAUDE_MODEL,
         requestId: crypto.randomUUID(),
         ...summaryInput,
       });
@@ -689,7 +711,7 @@ function SummaryBlock({ item }: { item: FeedItem }) {
       <Button
         variant="ghost"
         size="sm"
-        disabled={isSummarizing || summaryInput === undefined}
+        disabled={isSummarizing}
         onClick={() => void summarize()}
       >
         {isSummarizing ? <Spinner className="size-3.5" /> : null}
@@ -711,7 +733,7 @@ function LoadingRow() {
       role="status"
       aria-busy="true"
       aria-label="Loading your day"
-      className="mx-auto grid w-full max-w-[1480px] gap-7 px-6 py-6 lg:px-10 xl:gap-8 xl:py-8"
+      className="mx-auto grid w-full max-w-[1280px] gap-7 px-6 py-6 lg:px-10 xl:gap-8 xl:py-8"
     >
       <Skeleton className="h-3 w-64" />
 

@@ -88,7 +88,7 @@
 
 :root {
   color-scheme: light;
-  --background: oklch(0.982 0.0015 286);
+  --background: oklch(0.995 0.001 90);
   --foreground: oklch(0.12 0 0);
   --card: oklch(1 0 0);
   --card-foreground: oklch(0.145 0 0);
@@ -106,15 +106,15 @@
   --destructive: oklch(0.577 0.245 27.325);
   --destructive-soft: oklch(0.96 0.018 25);
   --positive: oklch(0.508 0.118 165.612);
-  --border: oklch(0.89 0.003 286);
-  --input: oklch(0.83 0.004 286);
+  --border: oklch(0.92 0.002 90);
+  --input: oklch(0.88 0.002 90);
   --ring: oklch(0.57 0.104 166);
   --chart-1: oklch(0.87 0 0);
   --chart-2: oklch(0.556 0 0);
   --chart-3: oklch(0.439 0 0);
   --chart-4: oklch(0.371 0 0);
   --chart-5: oklch(0.269 0 0);
-  --radius: 0.625rem;
+  --radius: 0.75rem;
   --panel: oklch(1 0 0);
   --panel-muted: oklch(0.972 0.0015 286);
   --sidebar: oklch(0.953 0.0025 286 / 97%);
@@ -135,9 +135,9 @@
   --page-header-height: 8rem;
   /* The workspace chrome is deliberately its own surface: a dark rail beside a
      near-white canvas in light mode, both darkened together in dark mode. */
-  --workspace-surface: oklch(0.973 0.0015 286);
-  --workspace-sidebar: oklch(0.203 0.001 286);
-  --workspace-sidebar-icon: oklch(0.58 0.002 286);
+  --workspace-surface: oklch(0.995 0.001 90);
+  --workspace-sidebar: oklch(0.972 0.002 90);
+  --workspace-sidebar-icon: oklch(0.47 0.003 90);
   --ink-faint: oklch(0.74 0.004 286);
 }
 
@@ -243,10 +243,10 @@
    * the box and gets shaved off by any scrolling or clipping ancestor.
    */
   .panel {
-    border-radius: 16px;
+    border-radius: 20px;
     border: 1px solid color-mix(in oklab, var(--foreground) 9%, transparent);
     background: var(--panel);
-    box-shadow: 0 1px 2px color-mix(in oklab, var(--foreground) 3%, transparent);
+    box-shadow: 0 2px 8px -4px color-mix(in oklab, var(--foreground) 8%, transparent);
   }
 
   .panel-row + .panel-row {

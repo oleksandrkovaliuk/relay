@@ -3,6 +3,8 @@ import { dirname } from "node:path";
 
 import type { TokenStorage } from "@clerk/electron";
 
+import { logError } from "./diagnostic-log";
+
 /**
  * Clerk's own `storage()` adapter encrypts tokens through Electron's `safeStorage`, which
  * is backed by the macOS Keychain. In an app that is not signed with a stable Developer ID
@@ -89,7 +91,7 @@ export function createFileTokenStorage(filePath: string): TokenStorage {
       try {
         operation();
       } catch (cause) {
-        console.error(`Could not ${action} the Clerk token at ${filePath}:`, cause);
+        logError(`Could not ${action} the Clerk token at ${filePath}:`, cause);
       }
     });
 

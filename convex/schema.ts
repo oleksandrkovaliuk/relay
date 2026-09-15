@@ -64,6 +64,7 @@ export default defineSchema({
   teacherProfile: defineTable({
     ownerId: v.optional(v.id("users")),
     styleNotes: v.string(),
+    appliedEditInstructions: v.optional(v.array(v.string())),
     updatedAt: v.number(),
   }).index("by_ownerId", ["ownerId"]),
 
@@ -93,6 +94,7 @@ export default defineSchema({
       v.literal("cancelled"),
     ),
     studentId: v.optional(v.id("students")),
+    studentIds: v.optional(v.array(v.id("students"))),
     /** Set for a rewrite: which activity, in which draft. */
     homeworkDraftId: v.optional(v.id("homeworkDrafts")),
     questionId: v.optional(v.id("homeworkQuestions")),
