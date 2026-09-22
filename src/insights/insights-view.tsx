@@ -1,5 +1,5 @@
 import { useNavigate } from "@tanstack/react-router";
-import { useQuery } from "convex-helpers/react/cache";
+import { useQuery } from "@/lib/convex-query";
 import type { FunctionReturnType } from "convex/server";
 import { useEffect, useId, useState } from "react";
 

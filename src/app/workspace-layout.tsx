@@ -1,6 +1,6 @@
 import { useUser } from "@clerk/electron/react";
 import { Outlet, useRouterState } from "@tanstack/react-router";
-import { useQuery } from "convex-helpers/react/cache";
+import { useQuery } from "@/lib/convex-query";
 import { useEffect, useState } from "react";
 
 import { api } from "@convex/_generated/api";

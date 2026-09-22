@@ -1,14 +1,9 @@
 import { ClerkProvider, useAuth } from "@clerk/electron/react";
 import { RouterProvider } from "@tanstack/react-router";
-import {
-  AuthLoading,
-  Authenticated,
-  ConvexReactClient,
-  Unauthenticated,
-} from "convex/react";
+import { QueryClientProvider } from "@tanstack/react-query";
+import { AuthLoading, Authenticated, Unauthenticated } from "convex/react";
 import { ConvexProviderWithClerk } from "convex/react-clerk";
-import { SessionQueryCache } from "@/lib/session-query-cache";
-import { StrictMode } from "react";
+import { StrictMode, useEffect, useRef } from "react";
 import { createRoot } from "react-dom/client";
 
 import "@/styles.css";
@@ -18,22 +13,19 @@ import { RelaySessionGate } from "@/auth/relay-session-recovery";
 import { RelayUserBootstrap } from "@/auth/relay-user-bootstrap";
 import { applyTheme, readThemePreference } from "@/settings/theme";
 import { RENDERER_SCHEME } from "@/shared/renderer-origin";
+import { convexClient, queryClient } from "./clients";
 import { createClerkRouterCallbacks } from "./clerk-navigation";
 import { router } from "./router";
 
 applyTheme(readThemePreference());
 
 const rootElement = document.getElementById("app");
-const convexUrl = import.meta.env.VITE_CONVEX_URL?.trim();
 const clerkPublishableKey = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY?.trim();
 
 if (!rootElement) throw new Error("Missing #app root element.");
-if (!convexUrl) throw new Error("Missing VITE_CONVEX_URL. Run `pnpm dev` to configure Convex.");
 if (!clerkPublishableKey) {
   throw new Error("Missing VITE_CLERK_PUBLISHABLE_KEY.");
 }
-
-const convex = new ConvexReactClient(convexUrl);
 const clerkRouter = createClerkRouterCallbacks({
   navigate: (path, options) => router.navigate({ to: path, replace: options.replace }),
   onError: (path, cause) => console.error(`Could not navigate to ${path}:`, cause),
@@ -72,26 +64,47 @@ createRoot(rootElement).render(
 );
 
 function AuthenticatedRelayApp() {
-  const { sessionId } = useAuth();
   return (
-    <ConvexProviderWithClerk client={convex} useAuth={useAuth}>
-      <TooltipProvider delay={350}>
-        <AuthLoading>
-          <RelayConnecting />
-        </AuthLoading>
-        <Unauthenticated>
-          <RelaySessionGate />
-        </Unauthenticated>
-        <Authenticated>
-          <SessionQueryCache key={sessionId}>
+    <ConvexProviderWithClerk client={convexClient} useAuth={useAuth}>
+      <QueryClientProvider client={queryClient}>
+        <TooltipProvider delay={350}>
+          <AuthLoading>
+            <RelayConnecting />
+          </AuthLoading>
+          <Unauthenticated>
+            <RelaySessionGate />
+          </Unauthenticated>
+          <Authenticated>
+            <SessionCacheReset />
             <RelayUserBootstrap>
               <RouterProvider router={router} />
             </RelayUserBootstrap>
-          </SessionQueryCache>
-        </Authenticated>
-      </TooltipProvider>
+          </Authenticated>
+        </TooltipProvider>
+      </QueryClientProvider>
     </ConvexProviderWithClerk>
   );
+}
+
+/**
+ * One teacher's cached data must never be shown to the next, so the cache is emptied when
+ * the session identity changes. This used to be a `key` on the provider, which remounted
+ * the router and every screen under it — including on the first render after sign-in,
+ * when Clerk's session id arrives and changes the key from `undefined`. That remount tore
+ * down live Convex subscriptions while the components watching them stayed mounted, which
+ * is why a page could sit on its skeleton for good, and why navigation flashed.
+ */
+function SessionCacheReset() {
+  const { sessionId } = useAuth();
+  const previousSessionId = useRef(sessionId);
+
+  useEffect(() => {
+    if (previousSessionId.current === sessionId) return;
+    previousSessionId.current = sessionId;
+    queryClient.clear();
+  }, [sessionId]);
+
+  return null;
 }
 
 function DesktopRequired() {

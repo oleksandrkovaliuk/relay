@@ -1,6 +1,6 @@
 import { useConvex } from "convex/react";
 import { Link } from "@tanstack/react-router";
-import { useQuery } from "convex-helpers/react/cache";
+import { useQuery } from "@/lib/convex-query";
 import { ArrowRight, ExternalLink } from "lucide-react";
 import { useEffect, useState, useDeferredValue } from "react";
 

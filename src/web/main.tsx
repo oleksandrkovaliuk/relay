@@ -1,11 +1,12 @@
-import { ConvexProvider, ConvexReactClient } from "convex/react";
+import { QueryClientProvider } from "@tanstack/react-query";
+import { ConvexProvider } from "convex/react";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 
+import { createConvexQueryClient } from "@/lib/convex-query-client";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { RelayLogo } from "@/components/relay-logo";
 import { HomeworkPlayer } from "@/homework/player/homework-player";
-import { QueryCache } from "@/lib/session-query-cache";
 import "@/styles.css";
 import { readShareToken } from "./read-share-token";
 
@@ -15,17 +16,17 @@ const convexUrl = import.meta.env.VITE_CONVEX_URL?.trim();
 if (!rootElement) throw new Error("Missing #app root element.");
 if (!convexUrl) throw new Error("Missing VITE_CONVEX_URL at build time.");
 
-const convex = new ConvexReactClient(convexUrl);
+const { convexClient, queryClient } = createConvexQueryClient(convexUrl);
 const shareToken = readShareToken(window.location);
 
 createRoot(rootElement).render(
   <StrictMode>
-    <ConvexProvider client={convex}>
-      <QueryCache>
+    <ConvexProvider client={convexClient}>
+      <QueryClientProvider client={queryClient}>
         <TooltipProvider delay={350}>
-        {shareToken ? <HomeworkPlayer shareToken={shareToken} /> : <MissingLink />}
+          {shareToken ? <HomeworkPlayer shareToken={shareToken} /> : <MissingLink />}
         </TooltipProvider>
-      </QueryCache>
+      </QueryClientProvider>
     </ConvexProvider>
   </StrictMode>,
 );
