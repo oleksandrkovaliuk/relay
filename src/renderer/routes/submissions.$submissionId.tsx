@@ -1,7 +1,10 @@
 import { createFileRoute, useNavigate, useRouter } from "@tanstack/react-router";
-import { useQuery } from "convex-helpers/react/cache";
+import { convexQuery } from "@convex-dev/react-query";
+
+import { useQuery } from "@/lib/convex-query";
 
 import { api } from "@convex/_generated/api";
+import { preload } from "@/lib/route-preload";
 import type { Id } from "@convex/_generated/dataModel";
 import { PageHeader } from "@/app/workspace-shell";
 import { useNow } from "@/lib/use-now";
@@ -16,6 +19,17 @@ export const Route = createFileRoute("/submissions/$submissionId")({
     return Number.isInteger(step) && step > 0 ? { step } : {};
   },
   remountDeps: ({ params }) => params,
+  /**
+   * The submission is fetched before the page renders. Its student's other sets cannot be
+   * fetched here — the student is only known once the submission arrives — so the sidebar
+   * is the one part that still fills in after paint.
+   */
+  loader: async ({ context, params }) => {
+    await preload(
+      context.queryClient,
+      convexQuery(api.submissions.detail, { submissionId: params.submissionId as Id<"submissions"> }),
+    );
+  },
   component: SubmissionReviewRoute,
 });
 
@@ -37,7 +51,7 @@ function SubmissionReviewRoute() {
   return (
     <>
       <PageHeader
-        title={detail ? `${detail.studentName}'s homework` : "Homework review"}
+        title={detail?.studentName ? `${detail.studentName}'s homework` : "Homework review"}
         description="Every answer as the student left it, marked where Relay could mark it."
       />
       <SubmissionReview

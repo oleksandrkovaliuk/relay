@@ -1,6 +1,7 @@
 import { createMemoryHistory, createRouter } from "@tanstack/react-router";
 
 import { RouteErrorPanel } from "@/app/route-error-panel";
+import { queryClient } from "./clients";
 import { readLastRoute } from "@/lib/last-route";
 import { routeTree } from "./routeTree.gen";
 
@@ -11,6 +12,12 @@ import { routeTree } from "./routeTree.gen";
  */
 export const router = createRouter({
   routeTree,
+  // Loaders read the query client from here, so a route can fill the cache before its
+  // component mounts.
+  context: { queryClient },
+  // A preload on hover should fill the cache and be trusted once there: these are live
+  // Convex subscriptions, so "stale" is not a state they reach.
+  defaultPreloadStaleTime: Number.POSITIVE_INFINITY,
   history: createMemoryHistory({ initialEntries: [readLastRoute()] }),
   defaultPreload: "intent",
   defaultErrorComponent: ({ error, reset }) => (

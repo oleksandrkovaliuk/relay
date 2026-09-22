@@ -1,9 +1,18 @@
+import { convexQuery } from "@convex-dev/react-query";
+
+import { api } from "@convex/_generated/api";
+import { preload } from "@/lib/route-preload";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 
 import { useNow } from "@/lib/use-now";
 import { StudentsView } from "@/students/students-view";
 
-export const Route = createFileRoute("/students/")({ component: StudentsPage });
+export const Route = createFileRoute("/students/")({
+  /** The list is in the cache before the page renders, so the tab opens on content. */
+  loader: ({ context }) =>
+    preload(context.queryClient, convexQuery(api.students.list, {})),
+  component: StudentsPage,
+});
 
 function StudentsPage() {
   const navigate = useNavigate();

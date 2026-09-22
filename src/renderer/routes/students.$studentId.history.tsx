@@ -1,7 +1,10 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { useQuery } from "convex-helpers/react/cache";
+import { convexQuery } from "@convex-dev/react-query";
+
+import { useQuery } from "@/lib/convex-query";
 
 import { api } from "@convex/_generated/api";
+import { preload } from "@/lib/route-preload";
 import type { Id } from "@convex/_generated/dataModel";
 import { PageHeader } from "@/app/workspace-shell";
 import { useNow } from "@/lib/use-now";
@@ -16,6 +19,18 @@ export const Route = createFileRoute("/students/$studentId/history")({
       ? { submission: search.submission as Id<"submissions"> }
       : {},
   remountDeps: ({ params }) => params,
+  /**
+   * Both queries the page opens on are fetched before it renders, so navigation lands on
+   * the student's homework rather than on a skeleton that resolves a moment later.
+   */
+  loader: async ({ context, params }) => {
+    const studentId = params.studentId as Id<"students">;
+    await preload(
+      context.queryClient,
+      convexQuery(api.students.get, { studentId }),
+      convexQuery(api.students.history, { studentId }),
+    );
+  },
   component: StudentHistoryRoute,
 });
 
@@ -29,7 +44,7 @@ function StudentHistoryRoute() {
   return (
     <>
       <PageHeader
-        title={student ? `${student.name}'s homework` : "Homework review"}
+        title={student?.name ? `${student.name}'s homework` : "Homework review"}
         description="Every answer as the student left it, marked where Relay could mark it."
       />
       <SubmissionReview

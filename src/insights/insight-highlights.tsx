@@ -1,5 +1,4 @@
 import { Link } from "@tanstack/react-router";
-import { useConvex } from "convex/react";
 import type { FunctionReturnType } from "convex/server";
 import { AlertTriangle, ArrowRight, Lightbulb, Sparkles } from "lucide-react";
 
@@ -40,7 +39,6 @@ export function InsightHighlightCard({
   highlight: InsightHighlight;
   onOpenSubmission?: (submissionId: Id<"submissions">) => void;
 }) {
-  const convex = useConvex();
   const { icon: Icon, color, border } = TONE_STYLES[highlight.tone];
   const submissionId = highlight.submissionId;
   const label = ACTION_LABELS[highlight.kind];
@@ -82,8 +80,8 @@ export function InsightHighlightCard({
             size="sm"
             className="-ml-2 mt-1.5"
             /* The builder opens on this student's context, so start reading it. */
-            onPointerEnter={() => prewarmStudentHistory(convex, planningStudentId)}
-            onFocus={() => prewarmStudentHistory(convex, planningStudentId)}
+            onPointerEnter={() => prewarmStudentHistory(planningStudentId)}
+            onFocus={() => prewarmStudentHistory(planningStudentId)}
             nativeButton={false}
             render={<Link to="/homework/new" search={{ studentId: planningStudentId }} />}
           >
@@ -95,8 +93,8 @@ export function InsightHighlightCard({
             variant="ghost"
             size="sm"
             className="-ml-2 mt-1.5"
-            onPointerEnter={() => prewarmSubmissionDetail(convex, submissionId)}
-            onFocus={() => prewarmSubmissionDetail(convex, submissionId)}
+            onPointerEnter={() => prewarmSubmissionDetail(submissionId)}
+            onFocus={() => prewarmSubmissionDetail(submissionId)}
             onClick={() => onOpenSubmission?.(submissionId)}
           >
             {label}

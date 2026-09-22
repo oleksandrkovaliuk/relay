@@ -1,7 +1,7 @@
 import { Link } from "@tanstack/react-router";
 import { ArrowUpRight, Clock3 } from "lucide-react";
-import { useConvex, useMutation } from "convex/react";
-import { useQuery } from "convex-helpers/react/cache";
+import { useMutation } from "convex/react";
+import { useQuery } from "@/lib/convex-query";
 
 import { api } from "@convex/_generated/api";
 import type { Id } from "@convex/_generated/dataModel";
@@ -44,7 +44,6 @@ const ACTIVITY_KINDS: readonly ClaudeActivityKind[] = [
  * a row apart under the same heading and the same "live" count.
  */
 export function InProgressHomework() {
-  const convex = useConvex();
   const activeJobs = useQuery(api.aiJobs.listActive);
   const inProgress = useQuery(api.feed.inProgress);
   const finishJob = useMutation(api.aiJobs.finishWithError);
@@ -179,8 +178,8 @@ export function InProgressHomework() {
               <Link
                 to="/submissions/$submissionId"
                 params={{ submissionId: attempt.submissionId }}
-                onPointerEnter={() => prewarmSubmissionDetail(convex, attempt.submissionId)}
-                onFocus={() => prewarmSubmissionDetail(convex, attempt.submissionId)}
+                onPointerEnter={() => prewarmSubmissionDetail(attempt.submissionId)}
+                onFocus={() => prewarmSubmissionDetail(attempt.submissionId)}
                 aria-label={`Open ${attempt.studentName}'s attempt at ${attempt.assignmentTitle}`}
                 className="absolute inset-0 z-0 outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
               />
@@ -205,8 +204,8 @@ export function InProgressHomework() {
                   variant="outline"
                   size="lg"
                   className="relative z-10 shrink-0"
-                  onPointerEnter={() => prewarmSubmissionDetail(convex, attempt.submissionId)}
-                  onFocus={() => prewarmSubmissionDetail(convex, attempt.submissionId)}
+                  onPointerEnter={() => prewarmSubmissionDetail(attempt.submissionId)}
+                  onFocus={() => prewarmSubmissionDetail(attempt.submissionId)}
                   nativeButton={false}
                   render={
                     <Link

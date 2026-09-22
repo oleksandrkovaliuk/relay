@@ -1,5 +1,5 @@
 import { useMutation } from "convex/react";
-import { useQuery } from "convex-helpers/react/cache";
+import { useQuery } from "@/lib/convex-query";
 import { ArrowLeft, ArrowRight, Check, Copy, ExternalLink, ListChecks, Trash2 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 

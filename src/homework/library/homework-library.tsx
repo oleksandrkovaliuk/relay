@@ -1,5 +1,5 @@
-import { useConvex, useMutation } from "convex/react";
-import { useQuery } from "convex-helpers/react/cache";
+import { useMutation } from "convex/react";
+import { useQuery } from "@/lib/convex-query";
 import {
   ArrowUpRight01Icon,
   CheckmarkCircle02Icon,
@@ -61,7 +61,6 @@ export function HomeworkLibrary({
 }) {
   const assignments = useQuery(api.assignments.listPublished);
   const drafts = useQuery(api.assignments.listDrafts);
-  const convex = useConvex();
   const closeAssignment = useMutation(api.assignments.close);
   const removeHomework = useMutation(api.assignments.remove);
   const reopenAssignment = useMutation(api.assignments.reopen);
@@ -240,8 +239,8 @@ export function HomeworkLibrary({
                 <button
                   type="button"
                   aria-label={`Open ${draft.title}`}
-                  onPointerEnter={() => prewarmHomeworkDraft(convex, draft._id)}
-                  onFocus={() => prewarmHomeworkDraft(convex, draft._id)}
+                  onPointerEnter={() => prewarmHomeworkDraft(draft._id)}
+                  onFocus={() => prewarmHomeworkDraft(draft._id)}
                   onClick={() => onOpenDraft(draft._id)}
                   className="absolute inset-0 z-0 outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
                 />
@@ -274,8 +273,8 @@ export function HomeworkLibrary({
                   variant="outline"
                   size="lg"
                   className="relative z-10"
-                  onPointerEnter={() => prewarmHomeworkDraft(convex, draft._id)}
-                  onFocus={() => prewarmHomeworkDraft(convex, draft._id)}
+                  onPointerEnter={() => prewarmHomeworkDraft(draft._id)}
+                  onFocus={() => prewarmHomeworkDraft(draft._id)}
                   onClick={() => onOpenDraft(draft._id)}
                 >
                   Review draft <HugeiconsIcon icon={ArrowUpRight01Icon} size={14} strokeWidth={2} aria-hidden />
@@ -310,8 +309,8 @@ export function HomeworkLibrary({
                   <button
                     type="button"
                     aria-label={`Open ${assignment.title}`}
-                    onPointerEnter={() => prewarmHomeworkDraft(convex, assignment.homeworkDraftId)}
-                    onFocus={() => prewarmHomeworkDraft(convex, assignment.homeworkDraftId)}
+                    onPointerEnter={() => prewarmHomeworkDraft(assignment.homeworkDraftId)}
+                    onFocus={() => prewarmHomeworkDraft(assignment.homeworkDraftId)}
                     onClick={() => onOpenDraft(assignment.homeworkDraftId)}
                     className="absolute inset-0 z-0 outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
                   />

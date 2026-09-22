@@ -9,8 +9,8 @@ import {
   ViewIcon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { useConvex, useMutation } from "convex/react";
-import { useQuery } from "convex-helpers/react/cache";
+import { useMutation } from "convex/react";
+import { useQuery } from "@/lib/convex-query";
 import { useState, type ReactNode } from "react";
 
 import { api } from "@convex/_generated/api";
@@ -77,7 +77,6 @@ export function StudentsView({
   onCreateHomework: (studentId: Id<"students">) => void;
   onOpenHistory: (studentId: Id<"students">) => void;
 }) {
-  const convex = useConvex();
   const students = useQuery(api.students.list);
   const removeStudent = useMutation(api.students.remove);
   const [editingId, setEditingId] = useState<Id<"students"> | null>(null);
@@ -184,13 +183,13 @@ export function StudentsView({
                     student={student}
                     now={now}
                     onEdit={() => setEditingId(student._id)}
-                    onPrewarmHistory={() => prewarmStudentHistory(convex, student._id)}
+                    onPrewarmHistory={() => prewarmStudentHistory(student._id)}
                     onOpenHistory={() => {
-                      prewarmStudentHistory(convex, student._id);
+                      prewarmStudentHistory(student._id);
                       onOpenHistory(student._id);
                     }}
                     onCreateHomework={() => {
-                      prewarmStudentHistory(convex, student._id);
+                      prewarmStudentHistory(student._id);
                       onCreateHomework(student._id);
                     }}
                     onDelete={() => {

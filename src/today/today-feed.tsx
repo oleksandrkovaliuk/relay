@@ -2,7 +2,7 @@ import { CrownIcon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { useConvex, useMutation } from "convex/react";
-import { useQuery } from "convex-helpers/react/cache";
+import { useQuery } from "@/lib/convex-query";
 import { ArrowRight, BookOpen, Clock3, Eye, Inbox, Star } from "lucide-react";
 import { useState } from "react";
 
@@ -72,13 +72,12 @@ function useFeed() {
 export function TodayFeed({ now }: { now: number }) {
   const feed = useFeed();
   const navigate = useNavigate();
-  const convex = useConvex();
   /** Review is a place, not a panel: one surface, linkable, with room to read. */
   const openSubmission = (submissionId: Id<"submissions">) =>
     void navigate({ to: "/submissions/$submissionId", params: { submissionId } });
   /** Reaching for a row is enough intent to start fetching what it opens. */
   const prewarmSubmission = (submissionId: Id<"submissions">) =>
-    prewarmSubmissionDetail(convex, submissionId);
+    prewarmSubmissionDetail(submissionId);
 
   if (feed === undefined) return <LoadingRow />;
 

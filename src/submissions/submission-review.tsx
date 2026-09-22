@@ -1,7 +1,6 @@
 import { Clock04Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { useConvex } from "convex/react";
-import { useQuery } from "convex-helpers/react/cache";
+import { useQuery } from "@/lib/convex-query";
 import { ArrowLeft, Star } from "lucide-react";
 import { useEffect, useRef } from "react";
 
@@ -63,7 +62,6 @@ export function SubmissionReview({
   onBack: () => void;
   onSelectSubmission: (submissionId: Id<"submissions">) => void;
 }) {
-  const convex = useConvex();
   const openDetail = useQuery(
     api.submissions.detail,
     submissionId ? { submissionId } : "skip",
@@ -98,7 +96,7 @@ export function SubmissionReview({
   }, [effectiveSubmissionId]);
 
   function selectSubmission(nextSubmissionId: Id<"submissions">) {
-    prewarmSubmissionDetail(convex, nextSubmissionId);
+    prewarmSubmissionDetail(nextSubmissionId);
     onSelectSubmission(nextSubmissionId);
   }
 
@@ -136,7 +134,7 @@ export function SubmissionReview({
               history={history}
               now={now}
               selectedSubmissionId={effectiveSubmissionId}
-              onPrewarm={(id) => prewarmSubmissionDetail(convex, id)}
+              onPrewarm={(id) => prewarmSubmissionDetail(id)}
               onSelect={selectSubmission}
             />
           </div>
